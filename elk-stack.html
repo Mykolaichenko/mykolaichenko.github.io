@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="ru"
+>
+<head>
+    <title>ELK Stack - Oleg Mykolaichenko</title>
+    <!-- Using the latest rendering mode for IE -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+
+
+<link rel="canonical" href="/elk-stack.html">
+
+        <meta name="author" content="Oleg Mykolaichenko" />
+        <meta name="description" content="В жизни каждого рано или позно наступает момент, когда нужно внедрить ELK. Что это такое, какие юз кейси, как правильно внедрить, куда смотреть и на что забить - только реальные примеры и паттерны, которые нехило бустонут в правильную сторону." />
+
+        <meta property="og:site_name" content="Oleg Mykolaichenko" />
+        <meta property="og:type" content="article"/>
+        <meta property="og:title" content="ELK Stack"/>
+        <meta property="og:url" content="/elk-stack.html"/>
+        <meta property="og:description" content="В жизни каждого рано или позно наступает момент, когда нужно внедрить ELK. Что это такое, какие юз кейси, как правильно внедрить, куда смотреть и на что забить - только реальные примеры и паттерны, которые нехило бустонут в правильную сторону."/>
+        <meta property="article:published_time" content="2016-05-13" />
+            <meta property="article:section" content="DevOps" />
+            <meta property="article:author" content="Oleg Mykolaichenko" />
+
+
+    <!-- Bootstrap -->
+        <link rel="stylesheet" href="/theme/css/bootstrap.min.css" type="text/css"/>
+    <link href="/theme/css/font-awesome.min.css" rel="stylesheet">
+
+    <link href="/theme/css/pygments/native.css" rel="stylesheet">
+    <link rel="stylesheet" href="/theme/css/style.css" type="text/css"/>
+
+
+</head>
+<body>
+
+<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+	<div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-ex1-collapse">
+                <span class="sr-only">Toggle navigation</span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a href="/" class="navbar-brand">
+Oleg Mykolaichenko            </a>
+        </div>
+        <div class="collapse navbar-collapse navbar-ex1-collapse">
+            <ul class="nav navbar-nav">
+                        <li class="active">
+                            <a href="/category/devops.html">Devops</a>
+                        </li>
+            </ul>
+            <ul class="nav navbar-nav navbar-right">
+              <li><a href="/archives.html"><i class="fa fa-th-list"></i><span class="icon-label">Archives</span></a></li>
+            </ul>
+        </div>
+        <!-- /.navbar-collapse -->
+    </div>
+</div> <!-- /.navbar -->
+<!-- Banner -->
+<!-- End Banner -->
+<div class="container">
+    <div class="row">
+        <div class="col-sm-9">
+
+    <section id="content">
+        <article>
+            <header class="page-header">
+                <h1>
+                    <a href="/elk-stack.html"
+                       rel="bookmark"
+                       title="Permalink to ELK Stack">
+                        ELK Stack
+                    </a>
+                </h1>
+            </header>
+            <div class="entry-content">
+                <div class="panel">
+                    <div class="panel-body">
+<footer class="post-info">
+    <span class="label label-default">Date</span>
+    <span class="published">
+        <i class="fa fa-calendar"></i><time datetime="2016-05-13T12:00:00+03:00"> Fri 13 May 2016</time>
+    </span>
+
+
+
+    
+</footer><!-- /.post-info -->                    </div>
+                </div>
+                <p><img alt="ELK Stack" src="/images/logstash.jpg" title="ELK Stack" /></p>
+<h1>ELK Stack, What?</h1>
+<p>ELK Stack - комплекс продуктов от проприетарной компании <a href="https://www.elastic.co/" title="Elastic">Elastic</a> для агрегации логов. По сути, стек этих продуктов дает возможность красивенько собирать в одно место логи аппа и операционной системы, а потом искать по ним. </p>
+<p><strong>Юз кейсы</strong>, когда нужно внедрять ELK: </p>
+<ul>
+<li>всегда </li>
+</ul>
+<p>&nbsp;</p>
+<p><strong>Юз кейсы</strong>, когда рекомендуется внедрять ELK:</p>
+<ul>
+<li>
+<p>когда девы хотят красивенько смотреть логи в браузере </p>
+</li>
+<li>
+<p>когда Вы хотите красивенько смотреть логи в браузере</p>
+</li>
+<li>
+<p>когда у Вас есть необходимость посмотреть что было с аппом в период с 19:45:08 до 19:45:10 и nano на сервере подвисает </p>
+</li>
+</ul>
+<p>&nbsp;</p>
+<p><strong>Анти юз кейсы</strong>, когда не нужно внедрять ELK: </p>
+<ul>
+<li>
+<p>если Вы сами не понимаете, что нужно и что не нужно собирать</p>
+</li>
+<li>
+<p>если лог - это один большой стектрейс </p>
+</li>
+</ul>
+<p>&nbsp;</p>
+<p>Во всех остальных случаях внедрать агрегацию логов однозначно нужно, тем более, что это решает одну самую главную проблему любого Ops/DevOps/Sysadmin:</p>
+<blockquote>
+<p>- Здравствуйте, бородатый сисадмин! Зайдите, пожалуйста, на сервер sheet.prod.it.company, и скопируйте мне одну строку лога за неделю назад, я не знаю какую, но она была примерно 500000 секунд назад, там еще ошибка была! Спасибо!</p>
+<p>- Я DevOps, вот тебе инструмент: зайди на kibana.it.company ищи там что тебе нужно. </p>
+<p>- Благодарю Вас, о великий DevOps! Больше никогда не буду отвлекать Вас по таким пустякам!</p>
+</blockquote>
+<h1>Внедряем!</h1>
+<p>Сначала определимся с терминами:</p>
+<ol>
+<li>
+<p>E - Elasticsearch - большое нереляционное и быстрое хранилище, которое, к тому-же, отлично скейлится</p>
+</li>
+<li>
+<p>L - Logstash - прожорливый апп с кучей возможностей для парсинга неструктурированного лога </p>
+</li>
+<li>
+<p>K - Kibana - веб лицо для Elasticsearch</p>
+</li>
+<li>
+<p>Stack - Stack</p>
+</li>
+</ol>
+<h2>Пререквизиты</h2>
+<p><strong>Еластиксерч</strong> лучше сразу поднимать в кластере, от 3 нод и больше. В зависимости от того, какой объем данных планируется писать/читать, добавляем по вкусу мем для хипа джавы. Для того, чтобы не тупило - мема нужно, конечно же, побольше. При огромных объемах данных объемах еластик чаще всего упирается в IOPS, соответственно хорошо бы положить его куда-то на SSD. Реплики/шарды можно оставить по дефолту, еластик сам пересчитает ноды в кластере и заалокейтит данные используя свои внутренний бест-пректис. </p>
+<blockquote>
+<p>> Кстати, Еластик - это <a href="https://lucene.apache.org/" title="Apache Lucene">Apache Lucene</a> внутри. По сути, еластиксерч - это такой большой и удобный враппер над деревянной, но супер производительной люценой.</p>
+<p>> Кстати, есть еще один враппер - <a href="http://lucene.apache.org/solr/" title="Apache Solr">Apache Solr</a>, он наверное производительнее Еластиксерча (но этого никто доказать не может, как и обратное), но удобнее чуть-чуть больше, чем сама Люцена. Короче Соляра не ахти, но из нее можно выдавить мощи больше, чем из Еластика. Вангую появление SLK </p>
+</blockquote>
+<p>В <strong>Logstash</strong> заваливаются сами логи, он их процессит внутри согласно правилам которые Вы опишете, и индексирует в хранилку, в Elasticsearch. Соответственно ему нужен CPU для парсинга, и немного мема чтобы держать в памяти то, что уже распарсилось но еще не успело залезть в Еластик. </p>
+<p>Через <strong>Kibana</strong> все будут взаимодействовать с хранилкой логов. Кибана любит открывать 100500 соединений в кластер Еластиксерча, рекомендую поставить эти продукты поближе.</p>
+<p><strong>Filebeat</strong> опа, внезапность, будет стоять на каждой виртуалке и отправлять нам логи.</p>
+<blockquote>
+<p>> Кстати, Файлбит - это новый Logstash forwarder. </p>
+</blockquote>
+<h2>Сетап</h2>
+<p>Ничего сложного, довольно тривиальный процесс. </p>
+<h2>Как оно работает</h2>
+<ol>
+<li>На каждой виртуалке стоит Filebeat, у которого в конфиге написано за какими лог файлами ему следить. Как только он детектит изменения - сразу построчно отправляет это в Logstash. </li>
+<li>Logstash получает себе в input строку, которую ему отправил Filebeat. Прогоняет его через все фильтра, определяет что с ним делать и отправляет в нужный output, в нужный индекс Еластика.</li>
+<li>Еластик получает лог, индексирует его, делая доступным для поиска, и цепляет поле timestamp - получается time-series табличка. </li>
+<li>Дев заходит на Кибану, вводит в строке поиска что ему там нужно найти, и находит. Или не находит.   </li>
+</ol>
+<blockquote>
+<p>> Кстати, цеплять рендомный timestamp - это плохо, так как теряется правильная последовательность логов.     </p>
+</blockquote>
+<h2>Filebeat Интерналс</h2>
+<p>Он простой. <a href="https://github.com/elastic/beats/tree/master/filebeat" title="Filebeat на гитхабе">Filebeat на гитхабе</a> - написан на Go, легковесный, работает стабильнее чем старый Logstash forwarder. </p>
+<p><a href="https://github.com/elastic/beats/blob/master/filebeat/filebeat.yml" title="Главное в директивах конфига">Главное в директивах конфига</a>:</p>
+<div class="highlight"><pre><span></span><span class="n">filebeat</span><span class="o">:</span>
+  <span class="n">prospectors</span><span class="o">:</span>
+    <span class="o">-</span>
+      <span class="n">paths</span><span class="o">:</span>
+        <span class="o">-</span> <span class="sr">/opt/tomcat/logs/</span><span class="n">catalina</span><span class="o">.</span><span class="na">out</span>
+      <span class="n">input_type</span><span class="o">:</span> <span class="n">log</span>
+      <span class="n">document_type</span><span class="o">:</span> <span class="n">java</span>
+      <span class="n">tail_files</span><span class="o">:</span> <span class="kc">true</span>
+      <span class="n">scan_frequency</span><span class="o">:</span> <span class="mi">1</span><span class="n">s</span>
+      <span class="n">backoff</span><span class="o">:</span> <span class="mi">1</span><span class="n">s</span>
+
+<span class="n">output</span><span class="o">:</span>
+  <span class="n">logstash</span><span class="o">:</span>
+    <span class="n">hosts</span><span class="o">:</span> <span class="o">[</span><span class="s2">&quot;logstash:port&quot;</span><span class="o">]</span>
+    <span class="n">tls</span><span class="o">:</span>
+      <span class="n">certificate_authorities</span><span class="o">:</span> <span class="o">[</span><span class="s2">&quot;/etc/filebeat/filebeat.crt&quot;</span><span class="o">]</span>
+      <span class="n">insecure</span><span class="o">:</span> <span class="kc">false</span>
+
+<span class="n">logging</span><span class="o">:</span>
+  <span class="n">to_files</span><span class="o">:</span> <span class="kc">true</span>
+  <span class="n">files</span><span class="o">:</span>
+    <span class="n">path</span><span class="o">:</span> <span class="sr">/var/log/</span><span class="n">filebeat</span>
+    <span class="n">name</span><span class="o">:</span> <span class="n">filebeat</span><span class="o">.</span><span class="na">log</span>
+    <span class="n">rotateeverybytes</span><span class="o">:</span> <span class="mi">1048576000</span>
+  <span class="n">level</span><span class="o">:</span> <span class="n">info</span>
+</pre></div>
+
+
+<p>В конфигах нужно указать путь к лог файлу, дать тип для этого типа логов, и настроить урлу логстеша, куда он будет отсылать. Все. </p>
+<h2>Logstash Интерналс</h2>
+<p>Конфиг логстеша делится на 3 части: инпут, фильтр, аутпут. Инпутов у него очень много разных, реально используется beats: </p>
+<div class="highlight"><pre><span></span>input {
+  beats {
+    port =&gt; 5044
+    ssl =&gt; true
+    ssl_certificate =&gt; &quot;/etc/pki/tls/certs/filebeat.crt&quot;
+    ssl_key =&gt; &quot;/etc/pki/tls/private/filebeat.key&quot;
+  }
+  beats {
+    port =&gt; 5045
+    ssl =&gt; true
+    ssl_certificate =&gt; &quot;/etc/pki/tls/certs/filebeat.crt&quot;
+    ssl_key =&gt; &quot;/etc/pki/tls/private/filebeat.key&quot;
+  }
+}
+</pre></div>
+
+
+<p>На этих портах будет слушать Логстеш. Закрываем его шифрованием, чтобы никто плохой ничего лишнего не прислал.  </p>
+<p>После того как лог попадёт в инпут, и это будет валидный тип (тот, который слушает логстеш на этом инпуте), он уйдет дальше в фильтр. </p>
+<p><a href="https://www.elastic.co/guide/en/logstash/current/input-plugins.html" title="Инпутов очень много.">Инпутов очень много.</a> Справедливости ради стоит сказать, что пацаны которые не успевают парсить логстешем логи ставят перед ним Rabbit/Redis/Kafka для того, чтобы создавать пул задач на логстеш. Это не очень хорошее решение. </p>
+<div class="highlight"><pre><span></span>filter {
+  if [message] =~ /^$/ {
+    drop {}
+  }
+
+  if [type] == &quot;bla&quot; {
+    foo {}
+  }
+}
+</pre></div>
+
+
+<p>Первая штука - это грязный хак. Бывает ему залетают пустые логи, и первая директива в фильтрах будет их скипать. Вторая - это проверка на тип, и как результат действие. <a href="https://www.elastic.co/guide/en/logstash/current/filter-plugins.html" title="Фильтров у него очень много, как и инпутов">Фильтров у него очень много, как и инпутов</a>, но ими нужно пользоваться с осторожностью, есть риск закорраптить лог на каком-то этапе.</p>
+<blockquote>
+<p>> Кстати, хоть grok и mutate использовать плохо, потому что grok выносит CPU своими регекспеми, а mutate превращает Logstash в однопоточный костыльный апп, все равно почитать про них нужно. </p>
+</blockquote>
+<p>Когда лог пройдет все фильтра, он поподет в аутпут. Как правило, с аутпутом все просто: </p>
+<div class="highlight"><pre><span></span>output {
+  if [env] == &quot;bla&quot; and [type] == &quot;bla&quot; {
+    elasticsearch {
+      hosts =&gt; [&quot;elasticsearch:port&quot;]
+      user =&gt; &quot;user&quot;
+      password =&gt; &quot;password&quot;
+      manage_template =&gt; false
+      index =&gt; &quot;uat-svc-%{+YYYY.MM.dd}&quot;
+    }
+  }
+}
+</pre></div>
+
+
+<p>Проверяем что за лог, и как результат заруливаем его в правильный индекс. Очень хороший паттерн  - <strong>мазать индексы по дням</strong> - еластику будет намного легче конкретизировать поиск, поднимая в память маленькие индексики, вместо огромного месячного индекса. </p>
+<p>До этого этапа я пытался вызвать когнитивный диссонанс:
+<em> юзать только beats инпут
+</em> не юзать фильтры
+* не делать пул тасок перед логстешами </p>
+<blockquote>
+<p>- Кококо, у меня логи стремные, я не смогу их так красиво распарсить и разложить по полкам! Я cдохну собирать разные строки стектрейса используя multiline, и потом это матчить регекспом, используя grok!</p>
+<p>- Да. Поэтому <strong>пиши лог в json</strong>.</p>
+</blockquote>
+<p>Это очень элегантное решение которое разруливает все вопросы с перформенсом и серчем. Девы должны сразу писать в джейсоне. Не буду останавливаться на этом, это слишком очевидно чтобы объяснять что-то еще. </p>
+<blockquote>
+<p>> Кстати, в json писать умеют все. Начиная с nginx и haproxy, заканчивая log4j, log4net, log4py, etc. </p>
+</blockquote>
+<h2>Elasticsearch Интерналс</h2>
+<p>Он работает даже если его не трогать. Пусть работает. Главное не забывать писать в отдельные индексы: </p>
+<div class="highlight"><pre><span></span>    index =&gt; &quot;uat-svc-%{+YYYY.MM.dd}&quot;
+</pre></div>
+
+
+<p>Перформенс будет теряться на больших или размазанных выборках. Не нужно пытаться серчить все ерроры за миллион лет, ищите точное вхождение нужного ексепшена, который вызвал этот еррор. </p>
+<p>С Еластиком интегрится очень много крутых штук. Например, для понимания того что происходит внутри еластика отлично подходит <a href="https://github.com/lmenezes/elasticsearch-kopf," title="elasticsearch-kopf">elasticsearch-kopf</a>, с помощью его можно смотреть стату по всему кластеру: ноды/индексы/шарды/ресурсы/маппинги. </p>
+<blockquote>
+<p>> Кстати, <a href="https://www.elastic.co/products/marvel," title="Marvel уже бесплатный">Marvel уже бесплатный</a> </p>
+</blockquote>
+<p>Очень интересно интегрироваться с <a href="http://docs.grafana.org/datasources/elasticsearch/," title="Grafana">Grafana</a>, и потом рисовать, например, персентили скорости ответа нжинкса хомяка. </p>
+<h2>Graylog</h2>
+<p>Сторит тоже в еластике, но более прожорливый, его форвардер написан на джаве, в общем - говно. На данный момент. </p>
+<h2>Альтернатива</h2>
+<blockquote>
+<p>> Кстати, <a href="https://ctrlok.com/," title="Сева из Grammarly">Уважаемый Сева из Grammarly</a> рассказывал интереснейшую историю про <a href="http://hekad.readthedocs.io/en/v0.10.0/" title="Mozilla Heka">Mozilla Heka</a>, судя по отзывам эта вещь немного бревно, но универсальное. В общем, интересно что получится из этого.</p>
+</blockquote>
+<h1>Severity: Important</h1>
+<p>Резюмируя скажу, что ELK Stack на данный момент <strong>единственное продакшн решение для Logs aggregation</strong>, которое стабильно работает при любых адекватных и неадекватных нагрузках, отлично скейлится, и дает себя настраивать так, как это нужно конкретно Вам. </p>
+<p>Важно помнить, что лучше не парсить логи, а писать их сразу в нормальном формате для быстрого индексирования.</p>
+<p>Не нужно строить перед логстешами точку отказа - менеджер очередей, а юзать максимально большое количество интеграций для гибкости и радоваться, что <strong>девы перестали выкачивать по SFTP логи с DBE сервера</strong>, и в Grafana на графиках практически в риалтайме <strong>рисуются</strong> не абстрактные метрики, а <strong>реальные значения работы нашего приложения</strong>. </p>
+            </div>
+            <!-- /.entry-content -->
+        </article>
+    </section>
+
+        </div>
+        <div class="col-sm-3" id="sidebar">
+            <aside>
+
+<section class="well well-sm">
+    <ul class="list-group list-group-flush">
+
+
+
+            <li class="list-group-item"><a href="/"><h4><i class="fa fa-tags fa-lg"></i><span class="icon-label">Tags</span></h4></a>
+                <ul class="list-group " id="tags">
+                </ul>
+            </li>
+    </ul>
+</section>
+            </aside>
+        </div>
+    </div>
+</div>
+<footer>
+   <div class="container">
+      <hr>
+      <div class="row">
+         <div class="col-xs-10">&copy; 2016 Oleg Mykolaichenko
+            &middot; Powered by <a href="https://github.com/DandyDev/pelican-bootstrap3" target="_blank">pelican-bootstrap3</a>,
+            <a href="http://docs.getpelican.com/" target="_blank">Pelican</a>,
+            <a href="http://getbootstrap.com" target="_blank">Bootstrap</a>         </div>
+         <div class="col-xs-2"><p class="pull-right"><i class="fa fa-arrow-up"></i> <a href="#">Back to top</a></p></div>
+      </div>
+   </div>
+</footer>
+<script src="/theme/js/jquery.min.js"></script>
+
+<!-- Include all compiled plugins (below), or include individual files as needed -->
+<script src="/theme/js/bootstrap.min.js"></script>
+
+<!-- Enable responsive features in IE8 with Respond.js (https://github.com/scottjehl/Respond) -->
+<script src="/theme/js/respond.min.js"></script>
+
+
+</body>
+</html>
