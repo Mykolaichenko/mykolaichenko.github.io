@@ -1,0 +1,781 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"><title>Oleg Mykolaichenko</title><link href="/" rel="alternate"></link><link href="/feed/atom" rel="self"></link><id>/</id><updated>2016-11-23T18:00:00+02:00</updated><entry><title>Introduction to Vault</title><link href="/introduction-to-vault.html" rel="alternate"></link><published>2016-11-23T18:00:00+02:00</published><author><name>Oleg Mykolaichenko</name></author><id>tag:,2016-11-23:introduction-to-vault.html</id><summary type="html">&lt;p&gt;&lt;img alt="vault hashicorp logo" src="/images/vault.png" title="vault hashicorp logo" /&gt;&lt;/p&gt;
+&lt;h1&gt;Vault&lt;/h1&gt;
+&lt;h2&gt;A tool for managing secrets.&lt;/h2&gt;
+&lt;p&gt;Желательно проскролить по диагонали: &lt;a href="https://github.com/hashicorp/vault"&gt;https://github.com/hashicorp/vault&lt;/a&gt; &lt;/p&gt;
+&lt;p&gt;Vault - это тулзня от хашикорпа (по сути один бинарник на Голанге), который позволяет секурно управлять секретами. Секрет, как они говорят, это что угодно, к чему нужен гибкий доступ (АПИ ключи, пароли, сертификаты). Vault предоставляет унифицированный интерфейс к каждому секрету, и дает гибкий настраиваемый доступ с очень детальным логированием (кто что прочитал, кто что хотел прочитать и не смог).&lt;/p&gt;
+&lt;p&gt;Основные фичи:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;сторедж для секретов&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;динамическая генерация секретов &lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;шифрование данных&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;ttl секрета, регенерация &lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;отзыв секрета&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;В общем, получается что это куча удобных фичей в одном флаконе.&lt;/p&gt;
+&lt;h1&gt;Решение проблем&lt;/h1&gt;
+&lt;p&gt;Со стороны инфраструктуры есть куча проблем, которые на данный момент никто не решает: &lt;/p&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;пароли лежат плеин текстом в репке&lt;/strong&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;Детальное описание проблемы: &lt;/p&gt;
+&lt;p&gt;Почти везде, где есть Infrastructure as Code (IaC) есть пару репо для Configuration management, где лежат настройки провижининга баз данных, менеджеров очередей, эндпоинтов других сервисов с аутентификацией, и так далее. Как правило, это не совсем секурно.
+Нужно бы как-то их оттуда убрать &lt;/p&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;все знают все пароли&lt;/strong&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;Детальное описание проблемы: &lt;/p&gt;
+&lt;p&gt;Окей, у нас пароли в репо, и нас это не беспокоит. Но вот проблема - есть несколько команд, и их менеджат разные люди. Например, если есть DBA - зачем ему знать креды к реббиту? &lt;/p&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;при увольнении человека пароли никто не меняет&lt;/strong&gt; &lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;Детальное описание проблемы:&lt;/p&gt;
+&lt;p&gt;Периодически люди уходят, и очень желательно иметь одно место, в котором можно поменять пассворд, и это применится на всей инфраструктуре. Не так ли? Очень часто этот этап скипают, потому что нужно пройтись по куче мест, где захардкожен этот пароль (и не дай бог в самом апликейше), и ооочень большая вероятность где-то в одном маленьком месте забыть.&lt;/p&gt;
+&lt;h2&gt;Анализ требований&lt;/h2&gt;
+&lt;p&gt;Ок, если у нас будут лежать в Vault все пароли, то это должно быть: 
+- сесурно (внезапно!), 
+- отказоустойчиво, 
+- гибко, 
+- и вообще - модно.&lt;/p&gt;
+&lt;p&gt;В общем, все это примерно так и есть.&lt;/p&gt;
+&lt;h1&gt;Перед внедрением&lt;/h1&gt;
+&lt;p&gt;Перед внедрением нужно обязательно поднять шумиху по поводу сесурити, иначе кто потом оценит? &lt;/p&gt;
+&lt;h1&gt;Внедрение&lt;/h1&gt;
+&lt;p&gt;Выкачать бинарник на сервер, и на клиент (пока только себе). &lt;/p&gt;
+&lt;p&gt;Создаем очень простой конфиг на сервере:
+внимание - это не json, это hcl&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;    backend &amp;quot;file&amp;quot; {
+      path = &amp;quot;/etc/vault/data/&amp;quot;
+    }
+
+    listener &amp;quot;tcp&amp;quot; {
+      address = &amp;quot;10.10.10.10:8200&amp;quot;
+      tls_disable = 1 
+    }
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;&lt;code&gt;tls_disable = 1&lt;/code&gt; - это только в тестовых целях, конечно&lt;/p&gt;
+&lt;p&gt;Тут есть несколько нюансов. Vault умеет сторить зашифрованную информацию в файл, различные базы данных, эндпоинты и т.п. Для теста - в файл. Для прода - в какой-то постргрес в кластере и с репликацией.&lt;/p&gt;
+&lt;p&gt;Заходим куда-то, инициализируем сервер &lt;code&gt;vault init&lt;/code&gt;&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;    $ vault init
+    Key 1: 427cd2c310be3b84fe69372e683a790e01
+    Key 2: 0e2b8f3555b42a232f7ace6fe0e68eaf02
+    Key 3: 37837e5559b322d0585a6e411614695403
+    Key 4: 8dd72fd7d1af254de5f82d1270fd87ab04
+    Key 5: b47fdeb7dda82dbe92d88d3c860f605005
+    Initial Root Token: eaf5cc32-b48f-7785-5c94-90b5ce300e9b
+
+    Vault initialized with 5 keys and a key threshold of 3!
+    ...
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;Он нам вернул 5 ключей для разблокировки сервера после рестарта, и один самый главный рут-токен. В целях безопасности, его лучше потом удалить.&lt;/p&gt;
+&lt;p&gt;Собственно, запускаем:
+&lt;code&gt;vault server -config server.hcl -log-level=debug&lt;/code&gt;&lt;/p&gt;
+&lt;p&gt;Крутяк. Сервер работает.&lt;/p&gt;
+&lt;h1&gt;В консоли на клиенте&lt;/h1&gt;
+&lt;p&gt;Доступ к серверу можно получить с консоли на клиенте, предварительно выкачав бинарник Vault. Для подключения к серверу нужно иметь 2 переменных окружения.&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;    export VAULT_ADDR=http://10.10.10.10:8200
+    export VAULT_TOKEN=eaf5cc32-b48f-7785-5c94-90b5ce300e9b
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;VAULT_ADDR - это ендпоин для подключения к серверу, VAULT_TOKEN - это Initial Root Token. &lt;/p&gt;
+&lt;p&gt;Окей. Создаем бэкенд, в который будет точкой отправки для всех остальных секретов (грубо говоря, как хомяк сайта).&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;    $ vault mount generic
+    Successfully mounted &amp;#39;generic&amp;#39; at &amp;#39;generic&amp;#39;!
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;Отлично, теперь туда можно что-то написать:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;    vault write secret/mysql/dev user=secure_user password=sdflksdncdsjn343434sddsf
+    Success! Data written to: secret/mysql/dev
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;Иерархия ключей тут древовидная, т.е. Vault знал только про бэкенд secret, но потом создал еще подпуть mysql,туда положил dev, и уже туда положил секреты. &lt;/p&gt;
+&lt;p&gt;Прочитать их можно подобным образом:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;    vault read secret/hello
+    Key             Value
+    lease_duration  2764800
+    excited         yes
+    user            mysql
+    password        sdflksdncdsjn343434sddsf
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;Вооо. Очень круто. Это работает. &lt;/p&gt;
+&lt;h1&gt;Убираем пароли из репозитория&lt;/h1&gt;
+&lt;h2&gt;Ansible&lt;/h2&gt;
+&lt;p&gt;В общем, то, как нужно их убрать - будет зависеть от того, что именно лежит в репке. Например, самый простой кейс - это Ansible.&lt;/p&gt;
+&lt;p&gt;Ссылка почитать и посмотреть: https://github.com/jhaals/ansible-vault&lt;/p&gt;
+&lt;p&gt;В нашем случае в vars.yml нужно будет написать такое вот:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="x"&gt;    mysql_user: &amp;quot;&lt;/span&gt;&lt;span class="cp"&gt;{{&lt;/span&gt; &lt;span class="nv"&gt;lookup&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;vault&amp;#39;&lt;/span&gt;&lt;span class="o"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;secret/mysql/dev&amp;#39;&lt;/span&gt;&lt;span class="o"&gt;)&lt;/span&gt;&lt;span class="nv"&gt;.user&lt;/span&gt; &lt;span class="cp"&gt;}}&lt;/span&gt;&lt;span class="x"&gt;&amp;quot;&lt;/span&gt;
+&lt;span class="x"&gt;    mysql_pass: &amp;quot;&lt;/span&gt;&lt;span class="cp"&gt;{{&lt;/span&gt; &lt;span class="nv"&gt;lookup&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;vault&amp;#39;&lt;/span&gt;&lt;span class="o"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;secret/mysql/dev&amp;#39;&lt;/span&gt;&lt;span class="o"&gt;)&lt;/span&gt;&lt;span class="nv"&gt;.password&lt;/span&gt; &lt;span class="cp"&gt;}}&lt;/span&gt;&lt;span class="x"&gt;&amp;quot;&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;При запуске Ansible заберет креды из Vault, и положит их в вариейблы, которые дальше можно юзать в плейбуках. 
+Подобный синтаксис будет работать и в шаблонах j2. &lt;/p&gt;
+&lt;h2&gt;Chef&lt;/h2&gt;
+&lt;p&gt;Ссылка почитать: https://www.hashicorp.com/blog/using-hashicorp-vault-with-chef.html&lt;/p&gt;
+&lt;p&gt;В кукбуках для подключения эндпоинта нужно будет заюзать такую вещь (непосредственно в рецепте):&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;    require &amp;#39;vault&amp;#39;
+
+    mysql_vault = Vault.logical.read(&amp;quot;secret/mysql/dev&amp;quot;)
+
+    mysql_user = mysql_vault.data[:user]
+    mysql_password = mysql_vault.data[:password] 
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;Вроде не напряжно.&lt;/p&gt;
+&lt;h2&gt;Аппликейшн&lt;/h2&gt;
+&lt;p&gt;Конечно, можно забирать инфу из Vault прямо из апликейшна. К примеру, у нас в компании очень хорошо прижился и активно используется ChatOps, 
+и это копипаст оттуда (при инициализации он забирает токен для слека и рандека). Посмотрите, как это работает.&lt;/p&gt;
+&lt;p&gt;Ссылка на пекедж для питончика: &lt;a href="https://github.com/ianunruh/hvac"&gt;https://github.com/ianunruh/hvac&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;Подобные модули есть на большинство языков программирования.&lt;/p&gt;
+&lt;p&gt;И сам код питончика: &lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;    &lt;span class="kn"&gt;from&lt;/span&gt; &lt;span class="nn"&gt;hvac&lt;/span&gt; &lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="n"&gt;Client&lt;/span&gt;
+
+
+    &lt;span class="k"&gt;try&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="n"&gt;client&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;Client&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;url&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;environ&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;get&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;VAULT_ADDR&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;),&lt;/span&gt; &lt;span class="n"&gt;token&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;environ&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;get&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;VAULT_TOKEN&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;))&lt;/span&gt;
+
+        &lt;span class="n"&gt;SLACK_TOKEN&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;client&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;read&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;secret/slack&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)[&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;data&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;][&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;key&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;
+        &lt;span class="n"&gt;RUNDECK_TOKEN&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;client&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;read&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;secret/rundeck&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)[&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;data&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;][&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;token&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;
+    &lt;span class="k"&gt;except&lt;/span&gt; &lt;span class="ne"&gt;Exception&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="k"&gt;raise&lt;/span&gt; &lt;span class="ne"&gt;Exception&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;Can not get slack token from vault!&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;Все очень и очень просто. Апп пытается загрести токен из переменных окружения, потом забрать нужные ему данные из Vault. Если у него не получается - он падает с ошибкой &lt;code&gt;'Can not get slack token from vault!'&lt;/code&gt;.&lt;/p&gt;
+&lt;h1&gt;Настраиваем гибкие ACL&lt;/h1&gt;
+&lt;p&gt;К примеру, настроим ACL для mysql аппа:&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;mkdir acl &amp;amp;&amp;amp; touch acl/mysql.hcl&lt;/code&gt;&lt;/p&gt;
+&lt;p&gt;И прописываем детально что ему можно, что ему нельзя:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;    path &amp;quot;secret/mysql/dev&amp;quot; {
+      policy = &amp;quot;write&amp;quot;
+    }
+
+    path &amp;quot;secret/mysql/uat&amp;quot; {
+      policy = &amp;quot;read&amp;quot;
+    }
+
+    path &amp;quot;secret/mysql/prod&amp;quot; {
+      policy = &amp;quot;read&amp;quot;
+    }
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;Заимпортим полиси на сервер: &lt;code&gt;vault policy-write mysql acl/mysql.hcl&lt;/code&gt;&lt;/p&gt;
+&lt;p&gt;И сгенерим токен с помощью этого ACL:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;    vault token-create -display-name=&amp;#39;mysql app&amp;#39; -ttl=&amp;quot;100500h&amp;quot; -policy=&amp;quot;mysql&amp;quot;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;Теперь, этот токен будет видеть только то, что мы ему наконфигурили, и ничего больше.
+Кстати, токен автоматически заекспайрится когда придет TTL. &lt;/p&gt;
+&lt;h1&gt;Увольняем сотрудника&lt;/h1&gt;
+&lt;p&gt;&lt;code&gt;vault token-revoke eaf5cc32-b48f-7785-5c94-90b5ce300e9&lt;/code&gt;&lt;/p&gt;
+&lt;p&gt;Мне не приходилось, но в любом случае, достаточно будет ревоукнуть токен и поменять пароли, к которым у него был доступ. &lt;/p&gt;
+&lt;h1&gt;Самое главное&lt;/h1&gt;
+&lt;p&gt;Не нужно хранить пароли в репо, для этого есть специальные штуки, например, Vault. &lt;/p&gt;</summary></entry><entry><title>Slack для деплоя аппов</title><link href="/slack-dlia-deploia-appov.html" rel="alternate"></link><published>2016-08-04T18:00:00+03:00</published><author><name>Oleg Mykolaichenko</name></author><id>tag:,2016-08-04:slack-dlia-deploia-appov.html</id><summary type="html">&lt;p&gt;Использование Slack в делой пайплайне реально прикольное, и приносит много-много бенефитов.&lt;/p&gt;
+&lt;h1&gt;Почему?&lt;/h1&gt;
+&lt;p&gt;Отходя в сторону от фана, основной бенефит от ChatOps - &lt;strong&gt;это последняя точка абсолютного доверия к деплою.&lt;/strong&gt; Если вы юзаете бест пректис в разработке, Ваш код однозначно версионирован (у каждого релиза есть своя версия), схема базы данных тоже версионирована, и, конечно инфраструктура версионирована. А как же код, который деплоит? (скрипты, fabric, ansible, salt, puppet, chef ...) Естественно, это тоже должно быть версионировано. Но, стоит заметить, что код для деплоя запускается непонятно где, и никто не может дать гарантию, что он не изменен, что это именно нужная последняя версия, что в папочке с кодом все чисто и правильно. Никто не может дать гарантию. Мы можем быть уверенны в этом только в том случае, если у нас есть централизованное место, из которого все, кто хочет доставить новую версию аппа, запускают деплой скрипты. Всем понятно, что это не может быть сделано по SSH - появляется человеческий фактор. И тут на арену выходит бот. Slack bot.&lt;/p&gt;
+&lt;p&gt;Второй основной концепцией поставки в ChatOps является &lt;strong&gt;коммуникация&lt;/strong&gt;. Каждый член команды разработки хочет знать, когда начался деплой, когда он закончился, и успешно ли он прошел. Каждый хочет видеть историю деплоев. Интересно знать что именно сейчас находится на инвайроменте. Возможно кто-то делал роллбек? Если использовать Slack bot, мы получаем эти бенефиты из коробки.&lt;/p&gt;
+&lt;p&gt;И еще один очень крутой бенефит. Вам не нужен именно Ваш ноутбук для деплоя. Вы можете перезапустить докер контейнер, или сделать роллбек прямо из телефона! Все что нужно - это скачать себе Slack клиент. В свою очередь, такой подход дает возможность правильно менеджить доступы (у кого есть права деплоить, у кого нету). Просто пригласите нужных людей в нужный канал!&lt;/p&gt;
+&lt;h1&gt;Почему именно бот, а не просто команда со слешем?&lt;/h1&gt;
+&lt;p&gt;У Slack есть очень крутые команды, которые начинаются со /, и их можно использовать для того, чтобы затриггерить что-либо, используя веб хук, и вернуть результаты в Slack. Действительно, мы можем использовать эту фичу для деплоя, но бот - это решение намного лучше, и на это есть 2 причины. &lt;/p&gt;
+&lt;p&gt;&lt;em&gt;Мы можем говорить с ботом.&lt;/em&gt; Конечно, мы не можем говорить с командой, которая начинается со слеша. И это очень большое преимущество для деплоя. Ведь мы можем сначала спросить, действительно мы хотим деплоить эту версию? Или спросить что-либо другое. Например, мы можем попросить историю коммитов, перед тем как запустим сам процесс. И это просто афигенно. &lt;/p&gt;
+&lt;p&gt;С технической точки зрения, второе преимущество - &lt;strong&gt;это простота&lt;/strong&gt;. Вам не нужно сетапить новый сервер, настраивать домен, SSL, API, аутентификацию... Все что нужно - это демон, запущенный в заранее оговоренном месте. &lt;/p&gt;
+&lt;h1&gt;Как выглядит деплой в Slack?&lt;/h1&gt;
+&lt;p&gt;Это скриншот Slack во время нашего актуального деплоя. Нашего бота зовут Nestor и я задеплоил новую версию фронтенда на наши сервера в AWS. &lt;/p&gt;
+&lt;p&gt;&lt;img alt="Slack Deploy" src="/images/slack_deploy.png" title="Slack Deploy" /&gt; &lt;/p&gt;
+&lt;h1&gt;Скелетон кода для бота&lt;/h1&gt;
+&lt;p&gt;Это наш скелетон для бота в Slack, мы используем его в &lt;a href="Serenytics"&gt;https://www.serenytics.com/&lt;/a&gt;. Это весь скрипт, который Вы можете дописать (заполнив пустые поля), и запустить где-либо. Все будет работать. Просто вставьте Ваш токен и код для деплоя. 
+Если вы хотите прочитать больше про ботов для Slack, &lt;a href="нажимайте сюда"&gt;https://api.slack.com/bot-users&lt;/a&gt;. &lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="nn"&gt;logging&lt;/span&gt;
+&lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="nn"&gt;os&lt;/span&gt;
+&lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="nn"&gt;time&lt;/span&gt;
+&lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="nn"&gt;traceback&lt;/span&gt;
+
+
+&lt;span class="c1"&gt;# pip install slackclient&lt;/span&gt;
+&lt;span class="kn"&gt;from&lt;/span&gt; &lt;span class="nn"&gt;slackclient&lt;/span&gt; &lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="n"&gt;SlackClient&lt;/span&gt;
+
+
+&lt;span class="n"&gt;SLACK_BOT_USER&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;YOUR_SLACK_BOT_USER_ID&amp;#39;&lt;/span&gt;
+&lt;span class="n"&gt;SLACK_BOT_MENTION&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;&amp;lt;@&lt;/span&gt;&lt;span class="si"&gt;%s&lt;/span&gt;&lt;span class="s1"&gt;&amp;gt;&amp;#39;&lt;/span&gt; &lt;span class="o"&gt;%&lt;/span&gt; &lt;span class="n"&gt;SLACK_BOT_USER&lt;/span&gt;
+&lt;span class="n"&gt;SLACK_BOT_NAME&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;nestor&amp;#39;&lt;/span&gt;
+&lt;span class="n"&gt;SLACK_CHANNEL&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;ask-nestor&amp;#39;&lt;/span&gt;
+
+&lt;span class="n"&gt;SLACK_TOKEN&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;os&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;environ&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;get&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;SLACK_TOKEN&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+&lt;span class="n"&gt;slack_client&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;SlackClient&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;SLACK_TOKEN&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+
+&lt;span class="k"&gt;class&lt;/span&gt; &lt;span class="nc"&gt;HelpException&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="ne"&gt;Exception&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+    &lt;span class="k"&gt;pass&lt;/span&gt;
+
+
+&lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;send_message&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;text&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+    &lt;span class="n"&gt;slack_client&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;rtm_send_message&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;channel&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;SLACK_CHANNEL&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;message&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;text&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+
+&lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;has_conversation_started_with&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;user&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+    &lt;span class="k"&gt;pass&lt;/span&gt;
+
+
+&lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;process_conversation&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;cmd&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;event&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+    &lt;span class="k"&gt;pass&lt;/span&gt;
+
+
+&lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;process_help&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="o"&gt;*&lt;/span&gt;&lt;span class="n"&gt;args&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+    &lt;span class="k"&gt;pass&lt;/span&gt;
+
+
+&lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;process_deploy&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;cmd&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;event&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+    &lt;span class="k"&gt;pass&lt;/span&gt;
+
+
+&lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;process_rollback&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;cmd&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;event&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+    &lt;span class="k"&gt;pass&lt;/span&gt;
+
+
+&lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;process_restart&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;cmd&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;event&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+    &lt;span class="k"&gt;pass&lt;/span&gt;
+
+
+&lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;process_event&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;event&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+    &lt;span class="c1"&gt;# filter out slack events that are not for us&lt;/span&gt;
+    &lt;span class="n"&gt;text&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;event&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;get&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;text&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;text&lt;/span&gt; &lt;span class="ow"&gt;is&lt;/span&gt; &lt;span class="bp"&gt;None&lt;/span&gt; &lt;span class="ow"&gt;or&lt;/span&gt; &lt;span class="ow"&gt;not&lt;/span&gt; &lt;span class="n"&gt;text&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;startswith&lt;/span&gt;&lt;span class="p"&gt;((&lt;/span&gt;&lt;span class="n"&gt;SLACK_BOT_NAME&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;SLACK_BOT_MENTION&lt;/span&gt;&lt;span class="p"&gt;)):&lt;/span&gt;
+        &lt;span class="k"&gt;return&lt;/span&gt;
+
+    &lt;span class="c1"&gt;# make sure our bot is only called for a specified channel&lt;/span&gt;
+    &lt;span class="n"&gt;channel&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;event&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;get&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;channel&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;channel&lt;/span&gt; &lt;span class="ow"&gt;is&lt;/span&gt; &lt;span class="bp"&gt;None&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="k"&gt;return&lt;/span&gt;
+    &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;channel&lt;/span&gt; &lt;span class="o"&gt;!=&lt;/span&gt; &lt;span class="n"&gt;sc&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;server&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;channels&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;find&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;SLACK_CHANNEL&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;id&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="n"&gt;send_message&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;&amp;lt;@{user}&amp;gt; I only run tasks asked from `{channel}` channel&amp;#39;&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;format&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;user&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;event&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;user&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;],&lt;/span&gt;
+                                                                                        &lt;span class="n"&gt;channel&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;SLACK_CHANNEL&lt;/span&gt;&lt;span class="p"&gt;))&lt;/span&gt;
+        &lt;span class="k"&gt;return&lt;/span&gt;
+
+    &lt;span class="c1"&gt;# remove bot name and extract command&lt;/span&gt;
+    &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;text&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;startswith&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;SLACK_BOT_MENTION&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+        &lt;span class="n"&gt;cmd&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;text&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;split&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;&lt;/span&gt;&lt;span class="si"&gt;%s&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;&lt;/span&gt; &lt;span class="o"&gt;%&lt;/span&gt; &lt;span class="n"&gt;SLACK_BOT_MENTION&lt;/span&gt;&lt;span class="p"&gt;)[&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;
+        &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;cmd&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;startswith&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;:&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+            &lt;span class="n"&gt;cmd&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;cmd&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;:]&lt;/span&gt;
+        &lt;span class="n"&gt;cmd&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;cmd&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;strip&lt;/span&gt;&lt;span class="p"&gt;()&lt;/span&gt;
+    &lt;span class="k"&gt;else&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="n"&gt;cmd&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;text&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;split&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;&lt;/span&gt;&lt;span class="si"&gt;%s&lt;/span&gt;&lt;span class="s1"&gt; &amp;#39;&lt;/span&gt; &lt;span class="o"&gt;%&lt;/span&gt; &lt;span class="n"&gt;SLACK_BOT_NAME&lt;/span&gt;&lt;span class="p"&gt;)[&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;
+
+    &lt;span class="c1"&gt;# process command&lt;/span&gt;
+    &lt;span class="k"&gt;try&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;has_conversation_started_with&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;event&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;user&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;]):&lt;/span&gt;
+            &lt;span class="n"&gt;process_conversation&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;cmd&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;event&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+        &lt;span class="k"&gt;elif&lt;/span&gt; &lt;span class="n"&gt;cmd&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;startswith&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;help&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+            &lt;span class="n"&gt;process_help&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;cmd&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;event&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+        &lt;span class="k"&gt;elif&lt;/span&gt; &lt;span class="n"&gt;cmd&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;startswith&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;deploy &amp;#39;&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+            &lt;span class="n"&gt;process_deploy&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;cmd&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;event&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+        &lt;span class="k"&gt;elif&lt;/span&gt; &lt;span class="n"&gt;cmd&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;startswith&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;rollback &amp;#39;&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+            &lt;span class="n"&gt;process_rollback&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;cmd&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;event&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+        &lt;span class="k"&gt;elif&lt;/span&gt; &lt;span class="n"&gt;cmd&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;startswith&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;restart &amp;#39;&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+            &lt;span class="n"&gt;process_restart&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;cmd&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;event&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+        &lt;span class="k"&gt;else&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="n"&gt;send_message&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;*I don&amp;#39;t know how to do that*: `&lt;/span&gt;&lt;span class="si"&gt;%s&lt;/span&gt;&lt;span class="s2"&gt;`&amp;quot;&lt;/span&gt; &lt;span class="o"&gt;%&lt;/span&gt; &lt;span class="n"&gt;cmd&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+            &lt;span class="n"&gt;process_help&lt;/span&gt;&lt;span class="p"&gt;()&lt;/span&gt;
+    &lt;span class="k"&gt;except&lt;/span&gt; &lt;span class="n"&gt;HelpException&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="n"&gt;process_help&lt;/span&gt;&lt;span class="p"&gt;()&lt;/span&gt;
+
+
+&lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;process_events&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;events&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+    &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;event&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="n"&gt;events&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="k"&gt;try&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="n"&gt;process_event&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;event&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+        &lt;span class="k"&gt;except&lt;/span&gt; &lt;span class="ne"&gt;Exception&lt;/span&gt; &lt;span class="k"&gt;as&lt;/span&gt; &lt;span class="n"&gt;e&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="n"&gt;logging&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;exception&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;e&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+            &lt;span class="n"&gt;msg&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;&lt;/span&gt;&lt;span class="si"&gt;%s&lt;/span&gt;&lt;span class="s1"&gt;: &lt;/span&gt;&lt;span class="si"&gt;%s&lt;/span&gt;&lt;span class="se"&gt;\n&lt;/span&gt;&lt;span class="si"&gt;%s&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;&lt;/span&gt; &lt;span class="o"&gt;%&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;e&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;__class__&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;__name__&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;e&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;traceback&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;format_exc&lt;/span&gt;&lt;span class="p"&gt;())&lt;/span&gt;
+            &lt;span class="n"&gt;send_message&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;msg&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+
+&lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;main&lt;/span&gt;&lt;span class="p"&gt;():&lt;/span&gt;
+    &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;slack_client&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;rtm_connect&lt;/span&gt;&lt;span class="p"&gt;():&lt;/span&gt;
+        &lt;span class="n"&gt;send_message&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;_starting..._&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+        &lt;span class="c1"&gt;# --&lt;/span&gt;
+        &lt;span class="c1"&gt;# Here is a good place to init git repositories if needed, in order to provide git-based features:&lt;/span&gt;
+        &lt;span class="c1"&gt;# - list of commits to deploy&lt;/span&gt;
+        &lt;span class="c1"&gt;# - history of deployments&lt;/span&gt;
+        &lt;span class="c1"&gt;# - status of deployed services vs what&amp;#39;s available in git&lt;/span&gt;
+
+        &lt;span class="n"&gt;send_message&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;*All right, I&amp;#39;m ready, ask me anything!*&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+        &lt;span class="k"&gt;while&lt;/span&gt; &lt;span class="bp"&gt;True&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="n"&gt;events&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;slack_client&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;rtm_read&lt;/span&gt;&lt;span class="p"&gt;()&lt;/span&gt;
+            &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;events&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+                &lt;span class="n"&gt;logging&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;info&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;events&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+            &lt;span class="n"&gt;process_events&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;events&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+            &lt;span class="n"&gt;time&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;sleep&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mf"&gt;0.1&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="k"&gt;else&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="n"&gt;logging&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;error&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;Connection Failed, invalid token?&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+
+&lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;__name__&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;__main__&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+    &lt;span class="n"&gt;main&lt;/span&gt;&lt;span class="p"&gt;()&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;h1&gt;Это - перевод&lt;/h1&gt;
+&lt;p&gt;Статья и правда мне очень понравилась, в ней представлен достаточно показательный пример ChatOps, описаны бенефиты и недостатки. Я не совсем согласен с примером на скриншоте, скорее всего бот должен именно стучать в централизированное API, а не реализовывать внутри себя все степы деплоя, но это - нюансы имплементации. 
+Каждый делает, как хочет и как знает. 
+Я уверен, что возможно доказать целесообразность любого решения, поэтому спорить не буду. 
+Оригинал можете прочитать тут: &lt;a href="tech-blog.serenytics.com"&gt;https://tech-blog.serenytics.com/deploy-your-saas-with-a-slack-bot-f6d1fc764658#.d6yack518&lt;/a&gt;  &lt;/p&gt;</summary></entry><entry><title>IPv4, IPv6 subnetting in Python</title><link href="/ipv4-ipv6-subnetting-in-python.html" rel="alternate"></link><published>2016-07-20T18:00:00+03:00</published><author><name>Oleg Mykolaichenko</name></author><id>tag:,2016-07-20:ipv4-ipv6-subnetting-in-python.html</id><summary type="html">&lt;p&gt;&lt;img alt="манипуляции с IP адресами" src="/images/ipv6.png" title="манипуляции с IP адресами" /&gt;&lt;/p&gt;
+&lt;h1&gt;Python&lt;/h1&gt;
+&lt;p&gt;Почему Python? Напишу об этом отдельную заметку. В двух словах - он "скриптовый", он "динамически типизирован", он нативен в любой линухе. Этого достаточно? &lt;/p&gt;
+&lt;h1&gt;IPython&lt;/h1&gt;
+&lt;p&gt;Нет, Стив Джобс не имеет никакого отношения к ipython. IPython - это очень крутая натюненная интерактивная консолька для пайтона, которая умеет автокомплитить, смотреть внутрь метода, нативные линуксовые команды (ls, pwd, grep), та и вообще только для крутых пацанов. Работать будем в ней консольно, она отлично для этого подходит. Еще есть браузерный вариант, но он больше для демонстраций графичков для научных сотрудников и всего такого. &lt;/p&gt;
+&lt;p&gt;Давайте решим первую задачку. &lt;/p&gt;
+&lt;h2&gt;List all IP from subnet&lt;/h2&gt;
+&lt;p&gt;В данном случае все очевидно, тут можно отлично закостылить, но мы не будем. Вместо этого запустим &lt;code&gt;ipython&lt;/code&gt; и импортируем &lt;code&gt;netaddr&lt;/code&gt;:&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;from netaddr import *&lt;/code&gt;&lt;/p&gt;
+&lt;p&gt;Крутяк. Теперь можем юзать, все что там внутри. &lt;/p&gt;
+&lt;p&gt;У нас задача - сделать список всех адресов в нужной подсети. Этим грешат абсолютно все онлайн штуки, которые показывают range - от и до. Нам это не интересно) &lt;/p&gt;
+&lt;p&gt;&lt;code&gt;ip = IPNetwork('172.16.35.0/22')&lt;/code&gt;&lt;/p&gt;
+&lt;p&gt;В данном случае - наша маска это &lt;em&gt;/22&lt;/em&gt;. Совсем не очевидно как считать это на листочке, тем более что это находится между октетов. Маска в десятичной системе будет выглядеть как &lt;em&gt;255.255.252.000&lt;/em&gt; и вмещает она в себя аж целых 1024 адреса. Не плохо.&lt;/p&gt;
+&lt;p&gt;Предлагаю узнать побольше информации о этой сети, которую netaddr может нам любезно предоставить.&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;    In [12]: ip.network
+    Out[12]: IPAddress(&amp;#39;172.16.32.0&amp;#39;) # адрес нашей сети
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;    In [12]: ip.broadcast
+    Out[12]: IPAddress(&amp;#39;172.16.35.255&amp;#39;) # адрес широковещательного адреса нашей сети
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;    In [14]: ip.hostmask
+    Out[14]: IPAddress(&amp;#39;0.0.3.255&amp;#39;) # инвертированная маска сети
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;    In [15]: ip.size
+    Out[15]: 1024 # количество узлов в сети 
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;У всех этих методов есть подметод bits, например:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;    In [16]: ip.broadcast.bits()
+    Out[16]: &amp;#39;10101100.00010000.00100011.11111111&amp;#39; # мажорство
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;Вернемся к задачке, вот ее решение: &lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;In [17]: for ip in IPNetwork(&amp;#39;172.16.35.0/22&amp;#39;):
+   ....:     print &amp;#39;%s&amp;#39; % ip
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;Так выглядит вывод команды: &lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;    172.16.32.0
+    172.16.32.1
+    172.16.32.2
+    172.16.32.3
+    172.16.32.4
+    172.16.32.5
+    172.16.32.6
+    ...
+    ...
+    ...
+    172.16.35.251
+    172.16.35.252
+    172.16.35.253
+    172.16.35.254
+    172.16.35.255
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;Кто не верит, что netaddr посчитал правильно - без проблем, садитесь за калькулятор, и пересчитывайте. Удачи, бро!&lt;/p&gt;
+&lt;p&gt;Кстати, это все абсолютно так же  работает и с IPv6 (и это афигительно просто):&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;In [18]: for ip in IPNetwork(&amp;#39;2001:19f0:5001:1d::1/126&amp;#39;):
+   ....:     print &amp;#39;%s&amp;#39; % ip
+   ....:
+2001:19f0:5001:1d::
+2001:19f0:5001:1d::1
+2001:19f0:5001:1d::2
+2001:19f0:5001:1d::3
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;На самом деле хостер мне выдал /64, но их я генерировать не буду, потому что их 18446744073709552000 - а это, между прочим, многовато.&lt;/p&gt;
+&lt;p&gt;Вообще, /64 выдавать должны всем: &lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;/64: the basic size of a single subnet: LAN, WAN, block of addresses for web virtual hosts, etc... "Normal" subnets are &amp;gt; never expected to be any smaller (longer prefix) than /64. No subnets are ever expected to be larger (shorter prefix)   &amp;gt; than /64 since a /64's worth of host addresses is way more than we can imagine needing.&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;Невзначай скажу, что эту информацию можно успешно использовать для хороших и не очень хороших вещей)&lt;/p&gt;
+&lt;p&gt;Например, вот так: &lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;    In [19]: for ip in IPNetwork(&amp;#39;2001:19f0:5001:1d::1/124&amp;#39;):
+       ....:     print &amp;#39;ip -6 addr add %s/128 dev eth0&amp;#39; % ip
+       ....:
+    ip -6 addr add 2001:19f0:5001:1d::/128 dev eth0
+    ip -6 addr add 2001:19f0:5001:1d::1/128 dev eth0
+    ip -6 addr add 2001:19f0:5001:1d::2/128 dev eth0
+    ip -6 addr add 2001:19f0:5001:1d::3/128 dev eth0
+    ip -6 addr add 2001:19f0:5001:1d::4/128 dev eth0
+    ip -6 addr add 2001:19f0:5001:1d::5/128 dev eth0
+    ip -6 addr add 2001:19f0:5001:1d::6/128 dev eth0
+    ip -6 addr add 2001:19f0:5001:1d::7/128 dev eth0
+    ip -6 addr add 2001:19f0:5001:1d::8/128 dev eth0
+    ip -6 addr add 2001:19f0:5001:1d::9/128 dev eth0
+    ip -6 addr add 2001:19f0:5001:1d::a/128 dev eth0
+    ip -6 addr add 2001:19f0:5001:1d::b/128 dev eth0
+    ip -6 addr add 2001:19f0:5001:1d::c/128 dev eth0
+    ip -6 addr add 2001:19f0:5001:1d::d/128 dev eth0
+    ip -6 addr add 2001:19f0:5001:1d::e/128 dev eth0
+    ip -6 addr add 2001:19f0:5001:1d::f/128 dev eth0
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;Это можно копипасить прямо в консоль. И, кстати, любой апп, который работает с сетью, умеет биндиться на интерфейс, или IP адрес.  К примеру: &lt;/p&gt;
+&lt;p&gt;&lt;code&gt;curl --interface '2001:19f0:5001:1d::f/128' http://www.google.com/search?q=mykolaichenko.github.io&lt;/code&gt;&lt;/p&gt;
+&lt;h1&gt;Самое важное&lt;/h1&gt;
+&lt;p&gt;В умелых руках и палка топор. &lt;/p&gt;</summary></entry><entry><title>OOM Killer, overcommitment</title><link href="/oom-killer-overcommitment.html" rel="alternate"></link><published>2016-07-08T18:00:00+03:00</published><author><name>Oleg Mykolaichenko</name></author><id>tag:,2016-07-08:oom-killer-overcommitment.html</id><summary type="html">&lt;p&gt;&lt;img alt="Out of memory" src="/images/outofmemory.jpg" title="Out of memory" /&gt;&lt;/p&gt;
+&lt;h1&gt;OOM Killer&lt;/h1&gt;
+&lt;p&gt;На самом деле, &lt;strong&gt;это очень крутой тип&lt;/strong&gt;, который приходит когда нужно, делает свое дело, и по-тихому уходит, наделав кучу плохих вещей. Ну или не плохих. Суть вот в чем: к примеру, у нас есть г&lt;em&gt;вноапликейшн (ну или новый билд в CI) который, в процессе своей г&lt;/em&gt;вноработы бесконечно аллоцирует память. Грубо говоря, в бесконечном цикле делает malloc(). К чему это приведет? Правильно, к тому что память физичски закончится, приложение умрет, повесит за собой операционную систему, и будет в состоянии &lt;a href="https://en.wikipedia.org/wiki/HLT_(x86_instruction)" title="HLT"&gt;HLT&lt;/a&gt; висеть, пока кто-нибудь не сделает хард резет. 
+Почему хард резет? Как правило, если состояние очень трагичное - ОС не может форкнуть процесс (просто некуда) и открыть хоть какую-то консоль (неважно, tty или ssh).
+И тут то появляется &lt;a href="http://linux-mm.org/OOM_Killer" title="OOM Killer"&gt;OOM Killer&lt;/a&gt;&lt;/p&gt;
+&lt;h1&gt;OOM Killer, что ты наделал?&lt;/h1&gt;
+&lt;p&gt;По сути, &lt;a href="http://linux-mm.org/OOM_Killer" title="OOM Killer"&gt;OOM Killer&lt;/a&gt; - это способ ядра своими силами решить проблему утечки памяти. Конечно, &lt;strong&gt;лучше привести девелоперов на инквизицию&lt;/strong&gt;, которые такое написали - но этого уже Linux сделать не сможет. 
+Очевидно, что у этого Стэтхема есть свой алгоритм, по которому он определяет, кого кильнуть, а кого оставить. Работает он так:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;Он берет размер памяти процесса (из total_vm), и записывает себе в блокнот.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Если это родительский процесс, то добавляет к верхнему числу &lt;code&gt;total_vm/2 + 1&lt;/code&gt; для всех порожденных.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Делит на user/system time процесса - &lt;code&gt;int_sqrt((utime+stime)/10&lt;/code&gt;&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Если niceness больше 0, умножает очки на 2 - тут подразумевается, что если приоритет у процесса больше 0 (это значит меньше для ОС: читать nice), то выполнение этого процесса не критично&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Если есть &lt;code&gt;CAP_SYS_ADMIN, CAP_SYS_RESOURCE, CAP_SYS_RAWIO&lt;/code&gt; - делит на 4 &lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Умножает очки на oom_adj из &lt;code&gt;/proc/$PID/oom_score_adj&lt;/code&gt;&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;Тот последний, у кого будет больше всего очков и будет убит.
+Сразу после этого в dmesg и &lt;code&gt;/var/log/kern.log&lt;/code&gt; будет &lt;code&gt;Killed process&lt;/code&gt;.
+Тот который попал под раздачу будет убит через SIGKILL. &lt;/p&gt;
+&lt;h1&gt;Понятно, что делать?&lt;/h1&gt;
+&lt;p&gt;Сначала желательно почитать логи. Возможно проблема описана в них, и дев сможет пофиксить за 1 секунду благодаря логам? В этом поможет &lt;a href="/elk-stack.html" title="ELK Stack"&gt;ELK Stack&lt;/a&gt;. &lt;/p&gt;
+&lt;p&gt;Если не помогло - есть варианты закостылить параметры для процессов, которые обязательно должны работать при любых обстоятельствах: 
+&lt;code&gt;echo -17 &amp;gt; /proc/[pid]/oom_adj&lt;/code&gt; #исключает процесс из выборки &lt;a href="http://linux-mm.org/OOM_Killer" title="OOM Killer"&gt;OOM Killer&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;renice -n -20 $PID&lt;/code&gt; #почти 100% уменьшает вероятность попасть под &lt;a href="http://linux-mm.org/OOM_Killer" title="OOM Killer"&gt;OOM Killer&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;В таком случае прогнозируемо, что апп с мемори ликом подвесит ОС. Этот вариант подходит для быстрых фиксов, грубо говоря "приклеить пластырь на танк".
+Адекватными действиями в данной ситуации будет считаться тюнинг оверкомитмента.&lt;/p&gt;
+&lt;h1&gt;Overcommit&lt;/h1&gt;
+&lt;p&gt;Оверкомитмент - это политики ядра, которые регулируют действия ОС в случаях, когда оперативной памяти не хватает. Эти очень важные темы настраиваются в &lt;code&gt;/etc/sysctl.conf&lt;/code&gt;&lt;/p&gt;
+&lt;p&gt;Есть 2 параметра, которые нужно затюнить:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;vm.overcommit_memory - стратегия оверкомитмента&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;vm.overcommit_ratio - уровень оверкомитмента, работает только с OVERCOMMIT_NEVER&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;Оверкомит мема принимает такие параметры:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;OVERCOMMIT_GUESS 0 - анализ памяти и умное распределение. &lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;OVERCOMMIT_ALWAYS 1 - память есть всегда &lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;OVERCOMMIT_NEVER 2 - память есть только тогда, когда она есть.&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;Значение 0 включено по умолчанию. Для быстрого фикса аппа ставим 1, для очень суровых парней, у которых нет девушек - ставим 2.&lt;/p&gt;
+&lt;h1&gt;Мониторинг&lt;/h1&gt;
+&lt;p&gt;Оттрекать плохое поведение программы поможет любой мониторинг. Если на графике занятая оперативная память медленно, но уверенно лезет вверх, без никакой чистки, без Z-образных скачков - это мемори лик. &lt;strong&gt;Поздравляю&lt;/strong&gt;.&lt;/p&gt;
+&lt;h1&gt;Важность&lt;/h1&gt;
+&lt;p&gt;Иногда, &lt;strong&gt;лучшим способом исправить &lt;/strong&gt;Out of memory&lt;strong&gt; является тихий и уютный разговор с человеком, который забывает за собой чистить память&lt;/strong&gt;. Что-то типа "Вася, у тебя бесконечный цикл, все сейчас упадет" - и человек ооочень быстро хотфиксит то, что должно быть запилено нормально сразу. Конечно, для того, чтобы вовремя определить и выявить проблему такого характера нужен базовый мониторинг (&lt;strong&gt;Graphite + Grafana + Beacon&lt;/strong&gt;, или что-то похожее). Но и быстро временно пофиксить проблему, отсрочив Out of memory error -  &lt;strong&gt;это тоже возможно&lt;/strong&gt;. &lt;/p&gt;</summary></entry><entry><title>Криминальное чтиво</title><link href="/kriminalnoe-chtivo.html" rel="alternate"></link><published>2016-05-18T12:00:00+03:00</published><author><name>Oleg Mykolaichenko</name></author><id>tag:,2016-05-18:kriminalnoe-chtivo.html</id><summary type="html">&lt;p&gt;&lt;img alt="Криминальное чтиво" src="/images/cat_and_book.jpg" title="Криминальное чтиво" /&gt;&lt;/p&gt;
+&lt;h1&gt;Как все запомнить&lt;/h1&gt;
+&lt;p&gt;На самом деле этот вопрос самый сложный, т.к. читать хочется так, чтобы запоминалось абсолютно все. Типа напихивать знания, и чтобы они там и оставались. Но мозг так не работает. Я сужу по себе - лучше усваивается та информация, которая в данный момент нужна. Чтобы запомнить навсегда нужно сразу же применить на практике. Неплохо запоминается информация, которая интересная, или та, которая будет совсем скоро применена. 
+А знания, которые мозг не может придумать в какую ячейку положить - просто скипает. Проверено :) &lt;/p&gt;
+&lt;p&gt;Именно поэтому я и решил себе сделать туду лист из книг.&lt;/p&gt;
+&lt;h1&gt;Как читать&lt;/h1&gt;
+&lt;p&gt;Я для себя сделал небольшой список правил, согласно которому буду читать книги. &lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Правила&lt;/strong&gt;, согласно которым я буду читать: &lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;обязательно &lt;strong&gt;читать каждый день&lt;/strong&gt;, даже в выходные (но не в отпуск) &lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;читать 1 книгу за 2 месяца&lt;/strong&gt;, не быстрее (если книга меньше, перечитывать по диагонали еще раз) &lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;читать осмысленно, не скипать неинтересные участки&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;делать записи со ссылками&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;записывать мысли, которые родились в процессе чтения &lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;имплементить прочитанное&lt;/strong&gt; по мере возможности&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h1&gt;Туду лист&lt;/h1&gt;
+&lt;p&gt;Собственно, то что нужно &lt;strong&gt;обязательно прочитать&lt;/strong&gt; за 2017:&lt;/p&gt;
+&lt;p&gt;&lt;img alt="Site Reliability Engineering" src="/images/books/sre.jpg" title="Site Reliability Engineering" /&gt; &lt;/p&gt;
+&lt;p&gt;Title: &lt;strong&gt;Site Reliability Engineering&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;Description: How Google Runs Production Systems&lt;/p&gt;
+&lt;p&gt;Pages: 552&lt;/p&gt;
+&lt;p&gt;Severity: Critical&lt;/p&gt;
+&lt;p&gt;Buy: &lt;a href="http://shop.oreilly.com/product/0636920041528.do"&gt;http://shop.oreilly.com/product/0636920041528.do&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;p&gt;&lt;img alt="Effective DevOps" src="/images/books/effective_devops.jpg" title="Effective DevOps" /&gt; &lt;/p&gt;
+&lt;p&gt;Title: &lt;strong&gt;Effective DevOps&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;Description: Building a Culture of Collaboration, Affinity, and Tooling at Scale&lt;/p&gt;
+&lt;p&gt;Pages: 392&lt;/p&gt;
+&lt;p&gt;Severity: Important&lt;/p&gt;
+&lt;p&gt;Buy: &lt;a href="http://shop.oreilly.com/product/0636920039846.do"&gt;http://shop.oreilly.com/product/0636920039846.do&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;p&gt;&lt;img alt="Infrastructure as Code" src="/images/books/iac.jpg" title="Infrastructure as Code" /&gt; &lt;/p&gt;
+&lt;p&gt;Title: &lt;strong&gt;Infrastructure as Code&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;Description: Managing Servers in the Cloud&lt;/p&gt;
+&lt;p&gt;Pages: 368&lt;/p&gt;
+&lt;p&gt;Severity: Trivial&lt;/p&gt;
+&lt;p&gt;Buy: &lt;a href="http://shop.oreilly.com/product/0636920039297.do"&gt;http://shop.oreilly.com/product/0636920039297.do&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;p&gt;&lt;img alt="Practical DevOps" src="/images/books/practical_devops.jpg" title="Practical DevOps" /&gt; &lt;/p&gt;
+&lt;p&gt;Title: &lt;strong&gt;Practical DevOps&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;Pages: 240&lt;/p&gt;
+&lt;p&gt;Severity: Trivial&lt;/p&gt;
+&lt;p&gt;Buy: &lt;a href="http://shop.oreilly.com/product/9781785882876.do"&gt;http://shop.oreilly.com/product/9781785882876.do&lt;/a&gt;&lt;/p&gt;
+&lt;h2&gt;По результатам отпишусь!&lt;/h2&gt;</summary></entry><entry><title>ELK Stack</title><link href="/elk-stack.html" rel="alternate"></link><published>2016-05-13T12:00:00+03:00</published><author><name>Oleg Mykolaichenko</name></author><id>tag:,2016-05-13:elk-stack.html</id><summary type="html">&lt;p&gt;&lt;img alt="ELK Stack" src="/images/logstash.jpg" title="ELK Stack" /&gt;&lt;/p&gt;
+&lt;h1&gt;ELK Stack, What?&lt;/h1&gt;
+&lt;p&gt;ELK Stack - комплекс продуктов от проприетарной компании &lt;a href="https://www.elastic.co/" title="Elastic"&gt;Elastic&lt;/a&gt; для агрегации логов. По сути, стек этих продуктов дает возможность красивенько собирать в одно место логи аппа и операционной системы, а потом искать по ним. &lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Юз кейсы&lt;/strong&gt;, когда нужно внедрять ELK: &lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;всегда &lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Юз кейсы&lt;/strong&gt;, когда рекомендуется внедрять ELK:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;когда девы хотят красивенько смотреть логи в браузере &lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;когда Вы хотите красивенько смотреть логи в браузере&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;когда у Вас есть необходимость посмотреть что было с аппом в период с 19:45:08 до 19:45:10 и nano на сервере подвисает &lt;/p&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Анти юз кейсы&lt;/strong&gt;, когда не нужно внедрять ELK: &lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;если Вы сами не понимаете, что нужно и что не нужно собирать
+4&lt;/li&gt;
+&lt;li&gt;если лог - это один большой стектрейс &lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;p&gt;Во всех остальных случаях внедрять агрегацию логов однозначно нужно, тем более, что это решает одну самую главную проблему любого Ops/DevOps/Sysadmin:&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;- Здравствуйте, бородатый сисадмин! Зайдите, пожалуйста, на сервер sheet.prod.it.company, и скопируйте мне одну строку лога за неделю назад, я не знаю какую, но она была примерно 500000 секунд назад, там ещё ошибка была! Спасибо!&lt;/p&gt;
+&lt;p&gt;- Я DevOps, вот тебе инструмент: зайди на kibana.it.company ищи там что тебе нужно. &lt;/p&gt;
+&lt;p&gt;- Благодарю Вас, о великий DevOps! Больше никогда не буду отвлекать Вас по таким пустякам!&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;h1&gt;Внедряем!&lt;/h1&gt;
+&lt;p&gt;Сначала определимся с терминами:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;E - Elasticsearch - большое нереляционное и быстрое хранилище, которое, к тому-же, отлично скейлится&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;L - Logstash - прожорливый апп с кучей возможностей для парсинга неструктурированного лога &lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;K - Kibana - веб лицо для Elasticsearch&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Stack - Stack&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ol&gt;
+&lt;h2&gt;Пререквизиты&lt;/h2&gt;
+&lt;p&gt;&lt;strong&gt;Еластиксерч&lt;/strong&gt; лучше сразу поднимать в кластере, от 3 нод и больше. В зависимости от того, какой объем данных планируется писать/читать, добавляем по вкусу мем для хипа джавы. Для того, чтобы не тупило - мема нужно, конечно же, побольше. При огромных объемах данных объемах еластик чаще всего упирается в IOPS, соответственно хорошо бы положить его куда-то на SSD. Реплики/шарды можно оставить по дефолту, еластик сам пересчитает ноды в кластере и заалокейтит данные используя свои внутренние бест-пректис. &lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&gt; Кстати, Еластик - это &lt;a href="https://lucene.apache.org/" title="Apache Lucene"&gt;Apache Lucene&lt;/a&gt; внутри. По сути, еластиксерч - это такой большой и удобный враппер над деревянной, но супер производительной люценой.&lt;/p&gt;
+&lt;p&gt;&gt; Кстати, есть еще один враппер - &lt;a href="http://lucene.apache.org/solr/" title="Apache Solr"&gt;Apache Solr&lt;/a&gt;, он наверное производительнее Еластиксерча (но этого никто доказать не может, как и обратное), но удобнее чуть-чуть больше, чем сама Люцена. Короче Соляра не ахти, но из нее можно выдавить мощи больше, чем из Еластика. Вангую появление SLK &lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;В &lt;strong&gt;Logstash&lt;/strong&gt; заваливаются сами логи, он их процессит внутри согласно правилам которые Вы опишете, и индексирует в хранилку, в Elasticsearch. Соответственно ему нужен CPU для парсинга, и немного мема чтобы держать в памяти то, что уже распарсилось но еще не успело залезть в Еластик. &lt;/p&gt;
+&lt;p&gt;Через &lt;strong&gt;Kibana&lt;/strong&gt; все будут взаимодействовать с хранилкой логов. Кибана любит открывать 100500 соединений в кластер Еластиксерча, рекомендую поставить эти продукты поближе.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Filebeat&lt;/strong&gt; опа, внезапность, будет стоять на каждой виртуалке и отправлять нам логи.&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&gt; Кстати, Файлбит - это новый Logstash forwarder. &lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;h2&gt;Сетап&lt;/h2&gt;
+&lt;p&gt;Ничего сложного, довольно тривиальный процесс. &lt;/p&gt;
+&lt;h2&gt;Как оно работает&lt;/h2&gt;
+&lt;ol&gt;
+&lt;li&gt;На каждой виртуалке стоит Filebeat, у которого в конфиге написано за какими лог файлами ему следить. Как только он детектит изменения - сразу построчно отправляет это в Logstash. &lt;/li&gt;
+&lt;li&gt;Logstash получает себе в input строку, которую ему отправил Filebeat. Прогоняет его через все фильтра, определяет что с ним делать и отправляет в нужный output, в нужный индекс Еластика.&lt;/li&gt;
+&lt;li&gt;Еластик получает лог, индексирует его, делая доступным для поиска, и цепляет поле timestamp - получается time-series табличка. &lt;/li&gt;
+&lt;li&gt;Дев заходит на Кибану, вводит в строке поиска что ему там нужно найти, и находит. Или не находит.   &lt;/li&gt;
+&lt;/ol&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&gt; Кстати, цеплять рендомный timestamp - это плохо, так как теряется правильная последовательность логов.     &lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;h2&gt;Filebeat Интерналс&lt;/h2&gt;
+&lt;p&gt;Он простой. &lt;a href="https://github.com/elastic/beats/tree/master/filebeat" title="Filebeat на гитхабе"&gt;Filebeat на гитхабе&lt;/a&gt; - написан на Go, легковесный, работает стабильнее чем старый Logstash forwarder. &lt;/p&gt;
+&lt;p&gt;&lt;a href="https://github.com/elastic/beats/blob/master/filebeat/filebeat.yml" title="Главное в директивах конфига"&gt;Главное в директивах конфига&lt;/a&gt;:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="n"&gt;filebeat&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt;
+  &lt;span class="n"&gt;prospectors&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt;
+    &lt;span class="o"&gt;-&lt;/span&gt;
+      &lt;span class="n"&gt;paths&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt;
+        &lt;span class="o"&gt;-&lt;/span&gt; &lt;span class="sr"&gt;/opt/tomcat/logs/&lt;/span&gt;&lt;span class="n"&gt;catalina&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;out&lt;/span&gt;
+      &lt;span class="n"&gt;input_type&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt; &lt;span class="n"&gt;log&lt;/span&gt;
+      &lt;span class="n"&gt;document_type&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt; &lt;span class="n"&gt;java&lt;/span&gt;
+      &lt;span class="n"&gt;tail_files&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt; &lt;span class="kc"&gt;true&lt;/span&gt;
+      &lt;span class="n"&gt;scan_frequency&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="n"&gt;s&lt;/span&gt;
+      &lt;span class="n"&gt;backoff&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="n"&gt;s&lt;/span&gt;
+
+&lt;span class="n"&gt;output&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt;
+  &lt;span class="n"&gt;logstash&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt;
+    &lt;span class="n"&gt;hosts&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt; &lt;span class="o"&gt;[&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;logstash:port&amp;quot;&lt;/span&gt;&lt;span class="o"&gt;]&lt;/span&gt;
+    &lt;span class="n"&gt;tls&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt;
+      &lt;span class="n"&gt;certificate_authorities&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt; &lt;span class="o"&gt;[&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;/etc/filebeat/filebeat.crt&amp;quot;&lt;/span&gt;&lt;span class="o"&gt;]&lt;/span&gt;
+      &lt;span class="n"&gt;insecure&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt; &lt;span class="kc"&gt;false&lt;/span&gt;
+
+&lt;span class="n"&gt;logging&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt;
+  &lt;span class="n"&gt;to_files&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt; &lt;span class="kc"&gt;true&lt;/span&gt;
+  &lt;span class="n"&gt;files&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt;
+    &lt;span class="n"&gt;path&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt; &lt;span class="sr"&gt;/var/log/&lt;/span&gt;&lt;span class="n"&gt;filebeat&lt;/span&gt;
+    &lt;span class="n"&gt;name&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt; &lt;span class="n"&gt;filebeat&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;log&lt;/span&gt;
+    &lt;span class="n"&gt;rotateeverybytes&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt; &lt;span class="mi"&gt;1048576000&lt;/span&gt;
+  &lt;span class="n"&gt;level&lt;/span&gt;&lt;span class="o"&gt;:&lt;/span&gt; &lt;span class="n"&gt;info&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;В конфигах нужно указать путь к лог файлу, дать тип для этого типа логов, и настроить урлу логстеша, куда он будет отсылать. Все. &lt;/p&gt;
+&lt;h2&gt;Logstash Интерналс&lt;/h2&gt;
+&lt;p&gt;Конфиг логстеша делится на 3 части: инпут, фильтр, аутпут. Инпутов у него очень много разных, реально используется beats: &lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;input {
+  beats {
+    port =&amp;gt; 5044
+    ssl =&amp;gt; true
+    ssl_certificate =&amp;gt; &amp;quot;/etc/pki/tls/certs/filebeat.crt&amp;quot;
+    ssl_key =&amp;gt; &amp;quot;/etc/pki/tls/private/filebeat.key&amp;quot;
+  }
+  beats {
+    port =&amp;gt; 5045
+    ssl =&amp;gt; true
+    ssl_certificate =&amp;gt; &amp;quot;/etc/pki/tls/certs/filebeat.crt&amp;quot;
+    ssl_key =&amp;gt; &amp;quot;/etc/pki/tls/private/filebeat.key&amp;quot;
+  }
+}
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;На этих портах будет слушать Логстеш. Закрываем его шифрованием, чтобы никто плохой ничего лишнего не прислал.  &lt;/p&gt;
+&lt;p&gt;После того как лог попадёт в инпут, и это будет валидный тип (тот, который слушает логстеш на этом инпуте), он уйдет дальше в фильтр. &lt;/p&gt;
+&lt;p&gt;&lt;a href="https://www.elastic.co/guide/en/logstash/current/input-plugins.html" title="Инпутов очень много."&gt;Инпутов очень много.&lt;/a&gt; Справедливости ради стоит сказать, что пацаны которые не успевают парсить логстешем логи ставят перед ним Rabbit/Redis/Kafka для того, чтобы создавать пул задач на логстеш. Это не очень хорошее решение. &lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;filter {
+  if [message] =~ /^$/ {
+    drop {}
+  }
+
+  if [type] == &amp;quot;bla&amp;quot; {
+    foo {}
+  }
+}
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;Первая штука - это грязный хак. Бывает ему залетают пустые логи, и первая директива в фильтрах будет их скипать. Вторая - это проверка на тип, и как результат действие. &lt;a href="https://www.elastic.co/guide/en/logstash/current/filter-plugins.html" title="Фильтров у него очень много, как и инпутов"&gt;Фильтров у него очень много, как и инпутов&lt;/a&gt;, но ими нужно пользоваться с осторожностью, есть риск закорраптить лог на каком-то этапе.&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&gt; Кстати, хоть grok и mutate использовать плохо, потому что grok выносит CPU своими регекспеми, а mutate превращает Logstash в однопоточный костыльный апп, все равно почитать про них нужно. &lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;Когда лог пройдет все фильтры, он попадет в аутпут. Как правило, с аутпутом все просто: &lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;output {
+  if [env] == &amp;quot;bla&amp;quot; and [type] == &amp;quot;bla&amp;quot; {
+    elasticsearch {
+      hosts =&amp;gt; [&amp;quot;elasticsearch:port&amp;quot;]
+      user =&amp;gt; &amp;quot;user&amp;quot;
+      password =&amp;gt; &amp;quot;password&amp;quot;
+      manage_template =&amp;gt; false
+      index =&amp;gt; &amp;quot;uat-svc-%{+YYYY.MM.dd}&amp;quot;
+    }
+  }
+}
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;Проверяем что за лог, и как результат заруливаем его в правильный индекс. Очень хороший паттерн  - &lt;strong&gt;мазать индексы по дням&lt;/strong&gt; - еластику будет намного легче конкретизировать поиск, поднимая в память маленькие индексики, вместо огромного месячного индекса. &lt;/p&gt;
+&lt;p&gt;До этого этапа я пытался вызвать когнитивный диссонанс:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;юзать только beats инпут&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;не юзать фильтры&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;не делать пул тасок перед логстешами &lt;/p&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;- Кококо, у меня логи стремные, я не смогу их так красиво распарсить и разложить по полкам! Я cдохну собирать разные строки стектрейса используя multiline, и потом это матчить регекспом, используя grok!&lt;/p&gt;
+&lt;p&gt;- Да. Поэтому &lt;strong&gt;пиши лог в json&lt;/strong&gt;.&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;Это очень элегантное решение которое разруливает все вопросы с перформенсом и серчем. Девы должны сразу писать в джейсоне. Не буду останавливаться на этом, это слишком очевидно чтобы объяснять что-то еще. &lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&gt; Кстати, в json писать умеют все. Начиная с nginx и haproxy, заканчивая log4j, log4net, log4py, etc. &lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;h2&gt;Elasticsearch Интерналс&lt;/h2&gt;
+&lt;p&gt;Он работает даже если его не трогать. Пусть работает. Главное не забывать писать в отдельные индексы: &lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;    index =&amp;gt; &amp;quot;uat-svc-%{+YYYY.MM.dd}&amp;quot;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;Перформенс будет теряться на больших или размазанных выборках. Не нужно пытаться серчить все ерроры за миллион лет, ищите точное вхождение нужного ексепшена, который вызвал этот еррор. &lt;/p&gt;
+&lt;p&gt;С Еластиком интегрится очень много крутых штук. Например, для понимания того что происходит внутри еластика отлично подходит &lt;a href="https://github.com/lmenezes/elasticsearch-kopf" title="elasticsearch-kopf"&gt;elasticsearch-kopf&lt;/a&gt;, с помощью его можно смотреть стату по всему кластеру: ноды/индексы/шарды/ресурсы/маппинги. &lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&gt; Кстати, &lt;a href="https://www.elastic.co/products/marvel" title="Marvel уже бесплатный"&gt;Marvel уже бесплатный&lt;/a&gt; &lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;Очень интересно интегрироваться с &lt;a href="http://docs.grafana.org/datasources/elasticsearch/" title="Grafana"&gt;Grafana&lt;/a&gt;, и потом рисовать, например, персентили скорости ответа нжинкса хомяка. &lt;/p&gt;
+&lt;h2&gt;Graylog&lt;/h2&gt;
+&lt;p&gt;Сторит тоже в еластике, но более прожорливый, его форвардер написан на джаве, в общем - говно. На данный момент. &lt;/p&gt;
+&lt;h2&gt;Альтернатива&lt;/h2&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&gt; Кстати, &lt;a href="https://ctrlok.com/" title="Сева из Grammarly"&gt;Уважаемый Сева из Grammarly&lt;/a&gt; рассказывал интереснейшую историю про &lt;a href="http://hekad.readthedocs.io/en/v0.10.0/" title="Mozilla Heka"&gt;Mozilla Heka&lt;/a&gt;, судя по отзывам эта вещь немного бревно, но универсальное. В общем, интересно что получится из этого.&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;h1&gt;Severity: Important&lt;/h1&gt;
+&lt;p&gt;Резюмируя скажу, что ELK Stack на данный момент &lt;strong&gt;единственное продакшн решение для Logs aggregation&lt;/strong&gt;, которое стабильно работает при любых адекватных и неадекватных нагрузках, отлично скейлится, и дает себя настраивать так, как это нужно конкретно Вам. &lt;/p&gt;
+&lt;p&gt;Важно помнить, что лучше не парсить логи, а писать их сразу в нормальном формате для быстрого индексирования.&lt;/p&gt;
+&lt;p&gt;Не нужно строить перед логстешами точку отказа - менеджер очередей, а юзать максимально большое количество интеграций для гибкости и радоваться, что &lt;strong&gt;девы перестали выкачивать по SFTP логи с DBE сервера&lt;/strong&gt;, и в Grafana на графиках практически в риалтайме &lt;strong&gt;рисуются&lt;/strong&gt; не абстрактные метрики, а &lt;strong&gt;реальные значения работы нашего приложения&lt;/strong&gt;. &lt;/p&gt;</summary></entry></feed>
