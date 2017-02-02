@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="ru"
+>
+<head>
+    <title>Как мы Redis Cluster готовили - Oleg Mykolaichenko</title>
+    <!-- Using the latest rendering mode for IE -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+
+
+<link rel="canonical" href="https://mykolaichenko.github.io/kak-my-redis-cluster-gotovili.html">
+
+        <meta name="author" content="Oleg Mykolaichenko" />
+        <meta name="description" content="В мире опен сорс есть огромное количество технологий, подходов, паттернов, тулзов и аппов, которые юзает очень много компаний. Как превратить используемое ПО или технологию в конкурентное преимущество? Предлагаю рассмотреть на примере Redis Cluster - как мы прокладывали наш путь." />
+
+        <meta property="og:site_name" content="Oleg Mykolaichenko" />
+        <meta property="og:type" content="article"/>
+        <meta property="og:title" content="Как мы Redis Cluster готовили"/>
+        <meta property="og:url" content="https://mykolaichenko.github.io/kak-my-redis-cluster-gotovili.html"/>
+        <meta property="og:description" content="В мире опен сорс есть огромное количество технологий, подходов, паттернов, тулзов и аппов, которые юзает очень много компаний. Как превратить используемое ПО или технологию в конкурентное преимущество? Предлагаю рассмотреть на примере Redis Cluster - как мы прокладывали наш путь."/>
+        <meta property="article:published_time" content="2017-01-27" />
+            <meta property="article:section" content="DevOps" />
+            <meta property="article:author" content="Oleg Mykolaichenko" />
+
+
+    <!-- Bootstrap -->
+        <link rel="stylesheet" href="https://mykolaichenko.github.io/theme/css/bootstrap.min.css" type="text/css"/>
+    <link href="https://mykolaichenko.github.io/theme/css/font-awesome.min.css" rel="stylesheet">
+
+    <link href="https://mykolaichenko.github.io/theme/css/pygments/native.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://mykolaichenko.github.io/theme/css/style.css" type="text/css"/>
+
+        <link href="https://mykolaichenko.github.io/feeds/all.atom.xml" type="application/atom+xml" rel="alternate"
+              title="Oleg Mykolaichenko ATOM Feed"/>
+        <link href="https://mykolaichenko.github.io/feeds/all.rss.xml" type="application/rss+xml" rel="alternate"
+              title="Oleg Mykolaichenko RSS Feed"/>
+
+</head>
+<body>
+
+<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+	<div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-ex1-collapse">
+                <span class="sr-only">Toggle navigation</span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a href="https://mykolaichenko.github.io/" class="navbar-brand">
+Oleg Mykolaichenko            </a>
+        </div>
+        <div class="collapse navbar-collapse navbar-ex1-collapse">
+            <ul class="nav navbar-nav">
+                        <li class="active">
+                            <a href="https://mykolaichenko.github.io/category/devops.html">Devops</a>
+                        </li>
+            </ul>
+            <ul class="nav navbar-nav navbar-right">
+              <li><a href="https://mykolaichenko.github.io/archives.html"><i class="fa fa-th-list"></i><span class="icon-label">Archives</span></a></li>
+            </ul>
+        </div>
+        <!-- /.navbar-collapse -->
+    </div>
+</div> <!-- /.navbar -->
+<!-- Banner -->
+<!-- End Banner -->
+<div class="container">
+    <div class="row">
+        <div class="col-sm-9">
+
+    <section id="content">
+        <article>
+            <header class="page-header">
+                <h1>
+                    <a href="https://mykolaichenko.github.io/kak-my-redis-cluster-gotovili.html"
+                       rel="bookmark"
+                       title="Permalink to Как мы Redis Cluster готовили">
+                        Как мы Redis Cluster готовили
+                    </a>
+                </h1>
+            </header>
+            <div class="entry-content">
+                <div class="panel">
+                    <div class="panel-body">
+<footer class="post-info">
+    <span class="label label-default">Date</span>
+    <span class="published">
+        <i class="fa fa-calendar"></i><time datetime="2017-01-27T12:00:00+02:00"> Fri 27 January 2017</time>
+    </span>
+
+
+
+    
+</footer><!-- /.post-info -->                    </div>
+                </div>
+                <p><img alt="Redis Cluster" src="/images/redis_cluster.jpg" title="Redis Cluster" /></p>
+<h1>Начало</h1>
+<p>Стоит начать с того, что Redis - это, по сути, <strong>очень удобная штука</strong>. В двух словах, Redis - это персистентное key-value хранилище в памяти, со своим блэкджеком и куртизантками. Чаще всего его сравнивают с устаревшим Memcached, который не умеет делать почти ничего из того, что умеет делать Redis. </p>
+<p><strong>Преимущества Redis:</strong> </p>
+<ul>
+<li>
+<p>очень очень быстрая скорость доступа к данным. Это же мемчик.</p>
+</li>
+<li>
+<p>смешанные типы данных, хеши. По одному ключу (ивент), мы можем сторить кучу инфы (юзер айди, тип ивента, время, токен, сессию). Это могут быть байты, килобайты, мегабайты данных.  </p>
+</li>
+<li>
+<p>дженерик TTL. Нам не нужно удалять то, что мы положили в Redis. Внутренний механизм сам удалит ключ, TTL которого пришел. Это невероятно удобно. </p>
+</li>
+<li>
+<p>унарные операции, инкременты, декременты - все это отрабатывает не моментально, а просто невероятно моментально. Соответственно, в Redis удобно и легко реализовывать комплексные прогресс бары, ивенты, класть кастомные данные, которые изменяются с разных мест системы. </p>
+</li>
+<li>
+<p>персистентность и бин-лог. Есть возможность периодически флашить все данные на диск, обеспечивая высокую доступность данных, и почти нивелируя их потерю.</p>
+</li>
+</ul>
+<p>&nbsp;</p>
+<p>Получается, что Redis - это такая "серебряная пуля", абсолютно для всех кейсов, подходов и практик? Ну, такое. Скорее нет, чем да.</p>
+<p>&nbsp;</p>
+<p>Например, проблемы, которые очень очень мешают жить: </p>
+<ul>
+<li>
+<p>стенделон. По факту, на данный момент, дефолтная инсталляция Redis - это стенделон. Это значит, что если у нас есть Single point of Failure, то у нас невероятно плохая архитектура, т.к. в случае падения Redis - вся система перестанет работать. </p>
+</li>
+<li>
+<p>флаш на диск. Это очень затратная операция, с высокой нагрузкой на IO, на мемчик. И ладно даже на железо - но наш сервис же невероятно тупит, ведь Redis должен зафиксировать все что у него там есть, и сделать большой Flush из быстрой памяти на медленный диск. В этот момент латенси на всех сервисах возрастает до секунд. </p>
+</li>
+</ul>
+<p>&nbsp;</p>
+<p>Вывод очевиден - Redis ускоряет продукт, ускоряет разработку, и его однозначно, нужно использовать, но ... <strong>есть проблемы.</strong></p>
+<p>&nbsp;</p>
+<h1>Redis Cluster</h1>
+<p>Там же есть Redis Cluster! Скажете Вы, но я бы попросил не спешить. На самом деле, у Redis есть 2 типа кластеризации:</p>
+<ul>
+<li>
+<p><strong>Redis Sentinel</strong> - для старых версий</p>
+</li>
+<li>
+<p><strong>Redis Cluster</strong> - для новых версий</p>
+</li>
+</ul>
+<p><strong>Redis Sentinel</strong> - это очень примитивная штука, которая выстраивает древовидную структуру из Ваших стенделон редисок, и называет это кластером. Никакого шардинга, балансировки, ничего. И тем более, это работает для старых версий Redis, если не ошибаюсь, ниже 3.0.</p>
+<p><strong>Redis Cluster</strong> - это штука повеселее, тут уже есть шардинг, репликация, отказоустойчивость, мастера-слейвы, разные там штуки прикольные и все такое. Это уже однозначно похоже на нормальный кластер, но все равно юзать это таким, как оно есть - не получится. </p>
+<p><img alt="Redis Cluster Fail" src="/images/redis_cluster_fail.jpg" title="Redis Cluster Fail" /></p>
+<p>&nbsp;</p>
+<h1>Почему это не работает</h1>
+<p>Для того, чтобы понять почему это не работает, нужно понять, как это работает внутри. </p>
+<p>&nbsp;</p>
+<p>Во первых, сам процесс создания Redis Cluster из стенделон нод - это <strong>дикость и унижение</strong>, в том виде, в котором это есть сейчас. В нашем 2017 году все привыкли к дискаверингу, провижинингу и репорту типа "я все сделал, тут уже кластер, все ок!" - но реалии таковы, что в сорсах Redis есть скрипт, написанный на рубях, который занимается тем, что принимает как аргументы инстансы редиски, и потом соединяет их в кластер. Доверяете ли вы подобным штукам? Думаю да, доверяли, лет 100500 назад. </p>
+<p>&nbsp;</p>
+<p>Окей, у нас есть кластер. Теперь немного теории: внутри кластера есть такие штуки, как hash slots. По сути, слот - это число, которое подразумевает набор данных, за которые ответственна конкретная нода кластера. Всего существует 16384 слота, которые равномерно делятся между всеми мастерами.</p>
+<p>&nbsp;</p>
+<p>Кстати, о мастерах. По умолчанию Redis Cluster может состоять не менее чем из трех нод, и все это будут мастера. Соответсвенно, они поделят слоты между собой.</p>
+<p>&nbsp;</p>
+<p>Второй нюанс использования кластера - это невероятная хрупкость. Например, у нас из кластера с 3 нодами отвалилась одна нода. Логичным решением было бы продолжить работать - у нас же есть 66,6% данных, но все совсем не радужно. В дефолтной конфигурации будет ответ 'CLUSTER IS DOWN' по запросу любого, даже живого ключа. </p>
+<p>&nbsp;</p>
+<p>Если рассматривать кластер побольше, например из 6 нод (3 мастера и 3 слейва) - ситуация повторяется. Пока происходит автоматический промоутинг слейва в мастера после падения, ответ аналогичен - 'CLUSTER IS DOWN'. А это - секунды, хотя эта задержка зависит от количества данных в кластере. </p>
+<p>&nbsp;</p>
+<p>Третья проблема - это клиенты. Точнее, коннекторы в апликейшнах. Если взять предыдущий кейс, когда у нас идет промоутинг кластера - все клиенты отвалятся с socket error, или connection timeout, или с чем-то похожим, потому что держат коннект ко всем мастерам в кластере. Это тоже нужно доделывать. </p>
+<p>&nbsp;</p>
+<p>Четвертый, и один из самых неприятных, нюанс - это изменение набора команд. Стандартные команды, которые работают по вайлдкардам - не работают, и это не удивительно. Это нужно переделывать по всему проекту, учить апликейшн работать как со стенделоном так и с кластером. По факту - это самая длинная и затратная часть имплементации Redis Cluster. </p>
+<p>&nbsp;</p>
+<h1>Как заставить это работать</h1>
+<p>Первый нюанс с провижинингом мы исправить не в состоянии, разве что сделать LWRP для Chef, и провижинить это как-то более нормально. По сути, примерно так мы и сделали.</p>
+<p>&nbsp;</p>
+<p>А вот второй и третий - это уже наша компетенция!</p>
+<p>&nbsp;</p>
+<p>Исправить 'CLUSTER IS DOWN' при отсутствии части слотов очень легко и просто - достаточно добавить параметр конфигурации:
+<code>cluster-require-full-coverage no</code></p>
+<p>&nbsp;</p>
+<p>Проблему с клиентами, которые отваливаются можно решить, потратив немного времени. В нашем проекте используется 2 языка - PHP и Java, поэтому нам нужно было делать два раза одну и ту же работу. Общий алгоритм сводится к таким степам: </p>
+<ol>
+<li>
+<p>Получаем на клиенте 'CLUSTER IS DOWN' - во время пересборки кластера </p>
+</li>
+<li>
+<p>Кетчим эту ошибку, сохраняем существующую нерабочую слотмапу.</p>
+</li>
+<li>
+<p>Ретраим конекшн, определенное количество раз, и ждем новую слотмапу.</p>
+</li>
+<li>
+<p>Когда слотмапа изменилась - вычитываем наше значение и радуемся.</p>
+</li>
+</ol>
+<p>&nbsp;</p>
+<p>Изменение слотмапы будет означать, что кластер перешел в рабочее состояние, и наши данные уже похвалит какой-то слейв, и он готов с ними работать. </p>
+<p>&nbsp;</p>
+<p>Ни для кого не будет секретом, если я скажу, что в кластере с 6+ нод, смысла флашить данные на диск нети никакого. Соответственно, если отключить персистентность - все будет работать очень и очень быстро. </p>
+<p>&nbsp;</p>
+<p><img alt="Baby" src="/images/maloi.jpg" title="Baby" /></p>
+<h1>Результат</h1>
+<p>Что же получилось в результате? </p>
+<ul>
+<li>
+<p>Мы достигли отличных показателей TTFB (так как теперь не боимся хранить сессии в Redis).</p>
+</li>
+<li>
+<p>У нас получился, наверное лучший в мире прогресс лоадер - там самая актуальная информация (актуальнее некуда!)</p>
+</li>
+<li>
+<p>Мы не боимся за данные, которые кладем в Redis Cluster и спим спокойно.</p>
+</li>
+<li>
+<p>SLA и User Experience намного улучшился из-за быстрой отзывчивости многих частей апликейшна</p>
+</li>
+</ul>
+<p>&nbsp;</p>
+<p>Вот такой интересный путь у нас получился. </p>
+<p>&nbsp;</p>
+<p>А как Вы используете общедоступные инструменты? </p>
+            </div>
+            <!-- /.entry-content -->
+    <hr/>
+    <section class="comments" id="comments">
+        <h2>Comments</h2>
+
+        <div id="disqus_thread"></div>
+        <script type="text/javascript">
+            /* * * CONFIGURATION VARIABLES: EDIT BEFORE PASTING INTO YOUR WEBPAGE * * */
+            var disqus_shortname = 'mykolaichenkogithubio'; // required: replace example with your forum shortname
+
+                    var disqus_identifier = 'kak-my-redis-cluster-gotovili';
+                var disqus_url = 'https://mykolaichenko.github.io/kak-my-redis-cluster-gotovili.html';
+
+            var disqus_config = function () {
+                this.language = "ru";
+            };
+
+            /* * * DON'T EDIT BELOW THIS LINE * * */
+            (function () {
+                var dsq = document.createElement('script');
+                dsq.type = 'text/javascript';
+                dsq.async = true;
+                dsq.src = 'https://' + disqus_shortname + '.disqus.com/embed.js';
+                (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+            })();
+        </script>
+        <noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by
+            Disqus.</a></noscript>
+        <a href="http://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+
+    </section>
+        </article>
+    </section>
+
+        </div>
+        <div class="col-sm-3" id="sidebar">
+            <aside>
+
+<section class="well well-sm">
+    <ul class="list-group list-group-flush">
+            <li class="list-group-item"><h4><i class="fa fa-home fa-lg"></i><span class="icon-label">Social</span></h4>
+              <ul class="list-group" id="social">
+                <li class="list-group-item"><a href="https://ua.linkedin.com/in/oleg-mykolaichenko-763ab699"><i class="fa fa-linkedin-square fa-lg"></i> linkedin</a></li>
+                <li class="list-group-item"><a href="https://github.com/Mykolaichenko"><i class="fa fa-github-square fa-lg"></i> github</a></li>
+              </ul>
+            </li>
+
+
+
+            <li class="list-group-item"><a href="https://mykolaichenko.github.io/"><h4><i class="fa fa-tags fa-lg"></i><span class="icon-label">Tags</span></h4></a>
+                <ul class="list-group " id="tags">
+                </ul>
+            </li>
+    </ul>
+</section>
+            </aside>
+        </div>
+    </div>
+</div>
+<footer>
+   <div class="container">
+      <hr>
+      <div class="row">
+         <div class="col-xs-10">&copy; 2017 Oleg Mykolaichenko         </div>
+         <div class="col-xs-2"><p class="pull-right"><i class="fa fa-arrow-up"></i> <a href="#">Back to top</a></p></div>
+      </div>
+   </div>
+</footer>
+<script src="https://mykolaichenko.github.io/theme/js/jquery.min.js"></script>
+
+<!-- Include all compiled plugins (below), or include individual files as needed -->
+<script src="https://mykolaichenko.github.io/theme/js/bootstrap.min.js"></script>
+
+<!-- Enable responsive features in IE8 with Respond.js (https://github.com/scottjehl/Respond) -->
+<script src="https://mykolaichenko.github.io/theme/js/respond.min.js"></script>
+
+    <!-- Disqus -->
+    <script type="text/javascript">
+        /* * * CONFIGURATION VARIABLES: EDIT BEFORE PASTING INTO YOUR WEBPAGE * * */
+        var disqus_shortname = 'mykolaichenkogithubio'; // required: replace example with your forum shortname
+
+        /* * * DON'T EDIT BELOW THIS LINE * * */
+        (function () {
+            var s = document.createElement('script');
+            s.async = true;
+            s.type = 'text/javascript';
+            s.src = '//' + disqus_shortname + '.disqus.com/count.js';
+            (document.getElementsByTagName('HEAD')[0] || document.getElementsByTagName('BODY')[0]).appendChild(s);
+        }());
+    </script>
+    <!-- End Disqus Code -->
+    <!-- Google Analytics -->
+    <script type="text/javascript">
+
+        var _gaq = _gaq || [];
+        _gaq.push(['_setAccount', 'UA-77921747-1']);
+        _gaq.push(['_trackPageview']);
+
+        (function () {
+            var ga = document.createElement('script');
+            ga.type = 'text/javascript';
+            ga.async = true;
+            ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+            var s = document.getElementsByTagName('script')[0];
+            s.parentNode.insertBefore(ga, s);
+        })();
+    </script>
+    <!-- End Google Analytics Code -->
+
+</body>
+</html>
